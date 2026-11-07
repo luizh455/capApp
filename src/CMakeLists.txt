@@ -5,7 +5,11 @@ add_library(capapp_core
     vulkan_context.cpp
     wasapi_engine.cpp
     capture_device.cpp
+    mf_capture_device.cpp
+    camera_selector.cpp
     av_sync_pipeline.cpp
+    color_converter.cpp
+    frame_recorder.cpp
     window.cpp
     app.cpp
     benchmark.cpp
@@ -19,6 +23,12 @@ if(WIN32)
     target_link_libraries(capapp_core PUBLIC
         user32
         gdi32
+        mf
+        mfplat
+        mfuuid
+        mfreadwrite
+        ole32
+        oleaut32
     )
 endif()
 

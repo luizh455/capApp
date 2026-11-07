@@ -30,6 +30,10 @@ add_executable(capapp_tests
     test_capture_sync.cpp
     test_app.cpp
     test_profiler_benchmark.cpp
+    test_camera_selector.cpp
+    test_color_converter.cpp
+    test_frame_recorder.cpp
+    test_post_processor.cpp
 )
 
 target_link_libraries(capapp_tests PRIVATE

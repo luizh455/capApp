@@ -1,8 +1,10 @@
 #include <capapp/app.hpp>
 #include <capapp/common.hpp>
+#include <capapp/capture/camera_selector.hpp>
 #include <capapp/profiling/benchmark.hpp>
 #include <iostream>
 #include <cstring>
+#include <cctype>
 
 int main(int argc, char* argv[]) {
     std::cout << "=========================================================\n";
@@ -13,7 +15,25 @@ int main(int argc, char* argv[]) {
     capapp::AppOptions options{};
 
     for (int i = 1; i < argc; ++i) {
-        if (std::strcmp(argv[i], "--benchmark") == 0 || std::strcmp(argv[i], "-b") == 0) {
+        if (std::strcmp(argv[i], "--list-devices") == 0 || std::strcmp(argv[i], "-l") == 0) {
+            std::cout << "\nScanning for Video Capture & Camera Devices...\n";
+            auto devices = capapp::capture::CameraSelector::enumerate_devices();
+            std::cout << "Found " << devices.size() << " Video Capture Input(s):\n";
+            for (const auto& dev : devices) {
+                std::cout << "  [" << dev.index << "] " << dev.name
+                          << " (" << dev.width << "x" << dev.height << " @" << dev.maxFps << " FPS)"
+                          << (dev.isVirtual ? " [Virtual]" : "") << "\n";
+            }
+            std::cout << "\nTo start with a specific device: capapp.exe --device <index_or_name>\n";
+            return 0;
+        } else if ((std::strcmp(argv[i], "--device") == 0 || std::strcmp(argv[i], "-d") == 0) && i + 1 < argc) {
+            std::string arg = argv[++i];
+            if (!arg.empty() && std::isdigit(static_cast<unsigned char>(arg[0]))) {
+                options.cameraIndex = static_cast<uint32_t>(std::stoul(arg));
+            } else {
+                options.cameraName = arg;
+            }
+        } else if (std::strcmp(argv[i], "--benchmark") == 0 || std::strcmp(argv[i], "-b") == 0) {
             std::cout << "[CapApp] Initiating automated glass-to-glass latency benchmark (500 frames)...\n";
             capapp::profiling::LatencyBenchmark bench(500);
             auto report = bench.run();
@@ -26,11 +46,16 @@ int main(int argc, char* argv[]) {
         } else if (std::strcmp(argv[i], "--help") == 0 || std::strcmp(argv[i], "-h") == 0) {
             std::cout << "Usage: capapp.exe [options]\n";
             std::cout << "Options:\n";
+            std::cout << "  --list-devices, -l  List all connected camera and capture inputs\n";
+            std::cout << "  --device, -d <id>   Select camera by device index or name\n";
             std::cout << "  --benchmark, -b     Run automated end-to-end latency benchmark\n";
             std::cout << "  --fullscreen, -f    Start directly in exclusive fullscreen\n";
             std::cout << "  --no-hud            Hide OSD telemetry overlay on start\n";
             std::cout << "  --help, -h          Show help message\n";
             std::cout << "\nKeyboard Controls:\n";
+            std::cout << "  C     - Cycle through Camera Inputs\n";
+            std::cout << "  F     - Cycle Post-Processing Shader FX (Scanlines, Sharpen, Contrast)\n";
+            std::cout << "  S     - Take High-Res Frame Snapshot\n";
             std::cout << "  F11   - Toggle Exclusive Fullscreen / Windowed\n";
             std::cout << "  Tab   - Toggle OSD Telemetry HUD\n";
             std::cout << "  Space - Pause / Resume Streaming\n";

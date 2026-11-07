@@ -25,9 +25,33 @@
 },
 {
   "directory": "J:/dev/capApp/build",
+  "command": "C:\\PROGRA~1\\MICROS~2\\18\\COMMUN~1\\VC\\Tools\\MSVC\\1451~1.362\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -IJ:\\dev\\capApp\\include /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD -Z7 /W4 /permissive- /utf-8 /Zc:__cplusplus /volatile:iso /Fosrc\\CMakeFiles\\capapp_core.dir\\mf_capture_device.cpp.obj /Fdsrc\\CMakeFiles\\capapp_core.dir\\capapp_core.pdb /FS -c J:\\dev\\capApp\\src\\mf_capture_device.cpp",
+  "file": "J:\\dev\\capApp\\src\\mf_capture_device.cpp",
+  "output": "src\\CMakeFiles\\capapp_core.dir\\mf_capture_device.cpp.obj"
+},
+{
+  "directory": "J:/dev/capApp/build",
+  "command": "C:\\PROGRA~1\\MICROS~2\\18\\COMMUN~1\\VC\\Tools\\MSVC\\1451~1.362\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -IJ:\\dev\\capApp\\include /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD -Z7 /W4 /permissive- /utf-8 /Zc:__cplusplus /volatile:iso /Fosrc\\CMakeFiles\\capapp_core.dir\\camera_selector.cpp.obj /Fdsrc\\CMakeFiles\\capapp_core.dir\\capapp_core.pdb /FS -c J:\\dev\\capApp\\src\\camera_selector.cpp",
+  "file": "J:\\dev\\capApp\\src\\camera_selector.cpp",
+  "output": "src\\CMakeFiles\\capapp_core.dir\\camera_selector.cpp.obj"
+},
+{
+  "directory": "J:/dev/capApp/build",
   "command": "C:\\PROGRA~1\\MICROS~2\\18\\COMMUN~1\\VC\\Tools\\MSVC\\1451~1.362\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -IJ:\\dev\\capApp\\include /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD -Z7 /W4 /permissive- /utf-8 /Zc:__cplusplus /volatile:iso /Fosrc\\CMakeFiles\\capapp_core.dir\\av_sync_pipeline.cpp.obj /Fdsrc\\CMakeFiles\\capapp_core.dir\\capapp_core.pdb /FS -c J:\\dev\\capApp\\src\\av_sync_pipeline.cpp",
   "file": "J:\\dev\\capApp\\src\\av_sync_pipeline.cpp",
   "output": "src\\CMakeFiles\\capapp_core.dir\\av_sync_pipeline.cpp.obj"
+},
+{
+  "directory": "J:/dev/capApp/build",
+  "command": "C:\\PROGRA~1\\MICROS~2\\18\\COMMUN~1\\VC\\Tools\\MSVC\\1451~1.362\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -IJ:\\dev\\capApp\\include /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD -Z7 /W4 /permissive- /utf-8 /Zc:__cplusplus /volatile:iso /Fosrc\\CMakeFiles\\capapp_core.dir\\color_converter.cpp.obj /Fdsrc\\CMakeFiles\\capapp_core.dir\\capapp_core.pdb /FS -c J:\\dev\\capApp\\src\\color_converter.cpp",
+  "file": "J:\\dev\\capApp\\src\\color_converter.cpp",
+  "output": "src\\CMakeFiles\\capapp_core.dir\\color_converter.cpp.obj"
+},
+{
+  "directory": "J:/dev/capApp/build",
+  "command": "C:\\PROGRA~1\\MICROS~2\\18\\COMMUN~1\\VC\\Tools\\MSVC\\1451~1.362\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -IJ:\\dev\\capApp\\include /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD -Z7 /W4 /permissive- /utf-8 /Zc:__cplusplus /volatile:iso /Fosrc\\CMakeFiles\\capapp_core.dir\\frame_recorder.cpp.obj /Fdsrc\\CMakeFiles\\capapp_core.dir\\capapp_core.pdb /FS -c J:\\dev\\capApp\\src\\frame_recorder.cpp",
+  "file": "J:\\dev\\capApp\\src\\frame_recorder.cpp",
+  "output": "src\\CMakeFiles\\capapp_core.dir\\frame_recorder.cpp.obj"
 },
 {
   "directory": "J:/dev/capApp/build",
@@ -100,5 +124,29 @@
   "command": "C:\\PROGRA~1\\MICROS~2\\18\\COMMUN~1\\VC\\Tools\\MSVC\\1451~1.362\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -IJ:\\dev\\capApp\\include -IJ:\\dev\\capApp\\tests /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD -Z7 /W4 /permissive- /utf-8 /Zc:__cplusplus /volatile:iso /Fotests\\CMakeFiles\\capapp_tests.dir\\test_profiler_benchmark.cpp.obj /Fdtests\\CMakeFiles\\capapp_tests.dir\\ /FS -c J:\\dev\\capApp\\tests\\test_profiler_benchmark.cpp",
   "file": "J:\\dev\\capApp\\tests\\test_profiler_benchmark.cpp",
   "output": "tests\\CMakeFiles\\capapp_tests.dir\\test_profiler_benchmark.cpp.obj"
+},
+{
+  "directory": "J:/dev/capApp/build",
+  "command": "C:\\PROGRA~1\\MICROS~2\\18\\COMMUN~1\\VC\\Tools\\MSVC\\1451~1.362\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -IJ:\\dev\\capApp\\include -IJ:\\dev\\capApp\\tests /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD -Z7 /W4 /permissive- /utf-8 /Zc:__cplusplus /volatile:iso /Fotests\\CMakeFiles\\capapp_tests.dir\\test_camera_selector.cpp.obj /Fdtests\\CMakeFiles\\capapp_tests.dir\\ /FS -c J:\\dev\\capApp\\tests\\test_camera_selector.cpp",
+  "file": "J:\\dev\\capApp\\tests\\test_camera_selector.cpp",
+  "output": "tests\\CMakeFiles\\capapp_tests.dir\\test_camera_selector.cpp.obj"
+},
+{
+  "directory": "J:/dev/capApp/build",
+  "command": "C:\\PROGRA~1\\MICROS~2\\18\\COMMUN~1\\VC\\Tools\\MSVC\\1451~1.362\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -IJ:\\dev\\capApp\\include -IJ:\\dev\\capApp\\tests /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD -Z7 /W4 /permissive- /utf-8 /Zc:__cplusplus /volatile:iso /Fotests\\CMakeFiles\\capapp_tests.dir\\test_color_converter.cpp.obj /Fdtests\\CMakeFiles\\capapp_tests.dir\\ /FS -c J:\\dev\\capApp\\tests\\test_color_converter.cpp",
+  "file": "J:\\dev\\capApp\\tests\\test_color_converter.cpp",
+  "output": "tests\\CMakeFiles\\capapp_tests.dir\\test_color_converter.cpp.obj"
+},
+{
+  "directory": "J:/dev/capApp/build",
+  "command": "C:\\PROGRA~1\\MICROS~2\\18\\COMMUN~1\\VC\\Tools\\MSVC\\1451~1.362\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -IJ:\\dev\\capApp\\include -IJ:\\dev\\capApp\\tests /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD -Z7 /W4 /permissive- /utf-8 /Zc:__cplusplus /volatile:iso /Fotests\\CMakeFiles\\capapp_tests.dir\\test_frame_recorder.cpp.obj /Fdtests\\CMakeFiles\\capapp_tests.dir\\ /FS -c J:\\dev\\capApp\\tests\\test_frame_recorder.cpp",
+  "file": "J:\\dev\\capApp\\tests\\test_frame_recorder.cpp",
+  "output": "tests\\CMakeFiles\\capapp_tests.dir\\test_frame_recorder.cpp.obj"
+},
+{
+  "directory": "J:/dev/capApp/build",
+  "command": "C:\\PROGRA~1\\MICROS~2\\18\\COMMUN~1\\VC\\Tools\\MSVC\\1451~1.362\\bin\\Hostx64\\x64\\cl.exe  /nologo /TP -IJ:\\dev\\capApp\\include -IJ:\\dev\\capApp\\tests /DWIN32 /D_WINDOWS /EHsc /O2 /Ob2 /DNDEBUG -std:c++20 -MD -Z7 /W4 /permissive- /utf-8 /Zc:__cplusplus /volatile:iso /Fotests\\CMakeFiles\\capapp_tests.dir\\test_post_processor.cpp.obj /Fdtests\\CMakeFiles\\capapp_tests.dir\\ /FS -c J:\\dev\\capApp\\tests\\test_post_processor.cpp",
+  "file": "J:\\dev\\capApp\\tests\\test_post_processor.cpp",
+  "output": "tests\\CMakeFiles\\capapp_tests.dir\\test_post_processor.cpp.obj"
 }
 ]

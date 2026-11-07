@@ -1,3 +1,4 @@
+#include <capapp/capture/mf_capture_device.hpp>
 #include <capapp/capture/capture_device.hpp>
 #include <capapp/decoder/decoder.hpp>
 #include <capapp/ring_buffer.hpp>
@@ -82,8 +83,17 @@ private:
     CaptureDeviceStats stats_{};
 };
 
-std::unique_ptr<ICaptureDevice> create_capture_device() {
+std::unique_ptr<ICaptureDevice> create_capture_device(const std::wstring& symbolicLink) {
+    if (!symbolicLink.empty()) {
+        return std::make_unique<MFCaptureDevice>(symbolicLink);
+    }
+    // Fallback for headless tests / no camera environment
     return std::make_unique<DesktopCaptureDevice>();
+}
+
+// Compatibility overload: used by benchmark.cpp and tests (no symbolic link available)
+std::unique_ptr<ICaptureDevice> create_capture_device() {
+    return create_capture_device(L"");
 }
 
 } // namespace capapp::capture

@@ -2,6 +2,8 @@
 #include <vector>
 #include <cstring>
 #include <chrono>
+#include <cmath>
+#include <algorithm>
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -10,6 +12,12 @@
 #endif
 
 namespace capapp::audio {
+
+static float sample_to_db(float linear) noexcept {
+    if (linear <= 1e-6f) return -60.0f;
+    float db = 20.0f * std::log10(linear);
+    return std::max(-60.0f, std::min(0.0f, db));
+}
 
 struct WasapiAudioEngine::Impl {
     WasapiConfig config;
@@ -24,6 +32,8 @@ struct WasapiAudioEngine::Impl {
     std::atomic<uint64_t> overruns{0};
     std::atomic<uint64_t> underruns{0};
     std::atomic<TimestampNs> lastHwTimestamp{0};
+
+    AudioMeterLevels meterLevels{};
 
     explicit Impl(WasapiConfig cfg) : config(cfg) {
         // Pre-allocate storage buffers to avoid dynamic allocation in hot audio path
@@ -105,6 +115,48 @@ bool WasapiAudioEngine::simulate_packet_capture(const float* samples, uint32_t f
 
     std::memcpy(storage, samples, byteSize);
 
+    // Audio Peak and RMS metering calculation
+    if (samples && frameCount > 0) {
+        float maxLeft = 0.0f;
+        float maxRight = 0.0f;
+        double sumSquareLeft = 0.0;
+        double sumSquareRight = 0.0;
+
+        if (impl_->config.channels >= 2) {
+            for (uint32_t i = 0; i < frameCount; ++i) {
+                float l = std::abs(samples[i * 2 + 0]);
+                float r = std::abs(samples[i * 2 + 1]);
+                if (l > maxLeft) maxLeft = l;
+                if (r > maxRight) maxRight = r;
+                sumSquareLeft += static_cast<double>(l) * l;
+                sumSquareRight += static_cast<double>(r) * r;
+            }
+        } else if (impl_->config.channels == 1) {
+            for (uint32_t i = 0; i < frameCount; ++i) {
+                float mono = std::abs(samples[i]);
+                if (mono > maxLeft) maxLeft = mono;
+                sumSquareLeft += static_cast<double>(mono) * mono;
+            }
+            maxRight = maxLeft;
+            sumSquareRight = sumSquareLeft;
+        }
+
+        float rmsLeft = frameCount > 0 ? std::sqrt(static_cast<float>(sumSquareLeft / frameCount)) : 0.0f;
+        float rmsRight = frameCount > 0 ? std::sqrt(static_cast<float>(sumSquareRight / frameCount)) : 0.0f;
+
+        float peakDbL = sample_to_db(maxLeft);
+        float peakDbR = sample_to_db(maxRight);
+        float rmsDbL = sample_to_db(rmsLeft);
+        float rmsDbR = sample_to_db(rmsRight);
+
+        impl_->meterLevels.peakDbLeft = peakDbL;
+        impl_->meterLevels.peakDbRight = peakDbR;
+        impl_->meterLevels.rmsDbLeft = rmsDbL;
+        impl_->meterLevels.rmsDbRight = rmsDbR;
+        if (peakDbL > impl_->meterLevels.peakHoldLeft) impl_->meterLevels.peakHoldLeft = peakDbL;
+        if (peakDbR > impl_->meterLevels.peakHoldRight) impl_->meterLevels.peakHoldRight = peakDbR;
+    }
+
     AudioBuffer buf{};
     buf.timestampNs = hwTimestampNs;
     buf.sampleRate = impl_->config.sampleRate;
@@ -138,6 +190,14 @@ AudioStats WasapiAudioEngine::stats() const noexcept {
     s.underrunCount = impl_->underruns.load(std::memory_order_relaxed);
     s.lastHardwareTimestampNs = impl_->lastHwTimestamp.load(std::memory_order_relaxed);
     return s;
+}
+
+AudioMeterLevels WasapiAudioEngine::meter_levels() const noexcept {
+    return impl_->meterLevels;
+}
+
+void WasapiAudioEngine::reset_meter() noexcept {
+    impl_->meterLevels = AudioMeterLevels{};
 }
 
 uint32_t WasapiAudioEngine::buffer_frame_count() const noexcept {

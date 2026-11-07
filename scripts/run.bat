@@ -10,6 +10,7 @@ if not exist "build\src\capapp.exe" (
 echo Starting CapApp with Interactive GUI and Live Telemetry...
 echo.
 echo Keyboard Controls:
+echo   [C]     - Cycle Camera Inputs (Webcam / HDMI Capture Card)
 echo   [F11]   - Toggle Exclusive Fullscreen / Windowed
 echo   [Tab]   - Toggle OSD Telemetry HUD
 echo   [Space] - Pause / Resume Streaming

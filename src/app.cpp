@@ -7,7 +7,7 @@
 #include <iomanip>
 
 namespace capapp::capture {
-    std::unique_ptr<ICaptureDevice> create_capture_device();
+    std::unique_ptr<ICaptureDevice> create_capture_device(const std::wstring& symbolicLink);
 }
 
 namespace capapp {
@@ -54,20 +54,61 @@ bool CapApplication::initialize() {
     audioEngine_->initialize();
     audioEngine_->start();
 
+    std::cout << "[CapApp] Enumerating video capture devices...\n";
+    cameraSelector_ = std::make_unique<capture::CameraSelector>();
+    if (!options_.cameraName.empty()) {
+        cameraSelector_->select_device_by_name(options_.cameraName);
+    } else if (options_.cameraIndex > 0) {
+        cameraSelector_->select_device(options_.cameraIndex);
+    }
+
+    const auto* initialCam = cameraSelector_->active_device();
+    std::cout << "[CapApp] Active Camera: [" << (initialCam ? initialCam->index : 0) << "] "
+              << (initialCam ? initialCam->name : "Default") << "\n";
+
     std::cout << "[CapApp] Opening hardware capture device...\n";
-    captureDev_ = capture::create_capture_device();
+    const std::wstring symLink = initialCam ? initialCam->symbolicLink : L"";
+    captureDev_ = capture::create_capture_device(symLink);
     capture::CaptureDeviceConfig capCfg{};
-    capCfg.targetWidth = 1920;
-    capCfg.targetHeight = 1080;
+    capCfg.targetWidth = initialCam ? initialCam->width : 1920;
+    capCfg.targetHeight = initialCam ? initialCam->height : 1080;
     capCfg.targetFps = options_.targetFps;
+    capCfg.preferredFormat = initialCam ? initialCam->preferredFormat : PixelFormat::BGRA8;
+    capCfg.deviceName = initialCam ? initialCam->name : "Default Device";
     capCfg.enableZeroCopy = true;
 
     if (!captureDev_->open(capCfg) || !captureDev_->start_stream()) {
-        std::cerr << "[CapApp Error] Failed to start capture stream.\n";
-        return false;
+        // MF device open failed (e.g. no camera permission in sandbox / CI).
+        // Fall back to the stub DesktopCaptureDevice so the rest of the app works.
+        std::cerr << "[CapApp Warning] Real camera open failed — falling back to stub capture device.\n";
+        captureDev_ = capture::create_capture_device(L""); // forces DesktopCaptureDevice
+        if (!captureDev_->open(capCfg) || !captureDev_->start_stream()) {
+            std::cerr << "[CapApp Error] Fallback capture device also failed.\n";
+            return false;
+        }
     }
 
+    // Dynamic camera switching callback
+    cameraSelector_->onDeviceChanged = [this](const capture::CameraDeviceInfo& newDev) {
+        std::cout << "[CapApp] Dynamic Camera Switch -> [" << newDev.index << "] " << newDev.name << "\n";
+        capture::CaptureDeviceConfig cfg{};
+        cfg.targetWidth = newDev.width;
+        cfg.targetHeight = newDev.height;
+        cfg.targetFps = newDev.maxFps;
+        cfg.preferredFormat = newDev.preferredFormat;
+        cfg.deviceName = newDev.name;
+        cfg.enableZeroCopy = true;
+
+        captureDev_->close();
+        // Re-create with new symbolic link so MFCaptureDevice opens the right camera
+        captureDev_ = capture::create_capture_device(newDev.symbolicLink);
+        captureDev_->open(cfg);
+        captureDev_->start_stream();
+    };
+
     avSync_ = std::make_unique<sync::AVSyncPipeline>(vulkanCtx_.get());
+    frameRecorder_ = std::make_unique<capture::FrameRecorder>();
+    frameRecorder_->start();
 
     // Setup input callbacks
     window_->onKeyPress = [this](uint32_t key) {
@@ -75,6 +116,12 @@ bool CapApplication::initialize() {
             toggle_hud();
         } else if (key == VK_SPACE) {
             toggle_pause();
+        } else if (key == 'C' || key == 'c') {
+            cycle_camera();
+        } else if (key == 'F' || key == 'f') {
+            cycle_filter();
+        } else if (key == 'S' || key == 's') {
+            take_snapshot();
         }
     };
 
@@ -91,6 +138,25 @@ void CapApplication::toggle_pause() noexcept {
     isPaused_ = !isPaused_;
 }
 
+void CapApplication::cycle_camera() noexcept {
+    if (cameraSelector_) {
+        cameraSelector_->cycle_next_device();
+    }
+}
+
+void CapApplication::cycle_filter() noexcept {
+    uint8_t nextMode = (static_cast<uint8_t>(activeFilter_) + 1) % 4;
+    activeFilter_ = static_cast<ui::FilterMode>(nextMode);
+    std::cout << "[CapApp] Post-Processing Shader FX -> " << ui::filter_mode_name(activeFilter_) << "\n";
+}
+
+void CapApplication::take_snapshot() noexcept {
+    if (frameRecorder_ && lastFrame_.data && lastFrame_.width > 0) {
+        frameRecorder_->capture_snapshot(lastFrame_);
+        std::cout << "[CapApp] Captured snapshot frame " << lastFrame_.timestampNs << "\n";
+    }
+}
+
 int CapApplication::run() {
     auto lastFrameTime = std::chrono::steady_clock::now();
     uint64_t framesInInterval = 0;
@@ -102,9 +168,13 @@ int CapApplication::run() {
 
         if (!isPaused_) {
             Frame frame{};
-            if (captureDev_->acquire_frame(frame)) {
+            bool hasFrame = captureDev_->acquire_frame(frame);
+            if (hasFrame) {
+                // Keep a copy of frame metadata + pixel pointer for rendering.
+                // The staging buffer lives inside MFCaptureDevice and is valid
+                // until the next acquire_frame call.
+                lastFrame_ = frame;
                 avSync_->push_video_frame(frame);
-                captureDev_->release_frame(frame);
             }
 
             // Simulate incoming WASAPI audio packet
@@ -120,9 +190,19 @@ int CapApplication::run() {
             AudioBuffer pairedAudio{};
             avSync_->get_synchronized_pair(pairedVideo, pairedAudio);
 
+            // Fall back to synced pair pixels if we have no fresh frame yet
+            if (!lastFrame_.data && pairedVideo.data) {
+                lastFrame_ = pairedVideo;
+            }
+
             render_frame();
             frameCount_++;
             framesInInterval++;
+
+            if (hasFrame) {
+                captureDev_->release_frame(frame);
+                lastFrame_.data = nullptr; // staging buffer will be reused next frame
+            }
         }
 
         // FPS calculation every 500ms
@@ -173,40 +253,70 @@ void CapApplication::render_frame() {
         backbufferHeight_ = height;
     }
 
-    // 1. Draw modern dark background
-    HBRUSH bgBrush = CreateSolidBrush(RGB(15, 23, 42)); // Slate 900
-    FillRect(memDC_, &clientRect, bgBrush);
-    DeleteObject(bgBrush);
+    // ----------------------------------------------------------------
+    // 1. Draw camera frame (or dark placeholder if no frame available)
+    // ----------------------------------------------------------------
+    if (lastFrame_.data && lastFrame_.width > 0 && lastFrame_.height > 0) {
+        // Blit live camera pixels using StretchDIBits (BGRA8 → GDI)
+        BITMAPINFO bmi{};
+        bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+        bmi.bmiHeader.biWidth       = static_cast<LONG>(lastFrame_.width);
+        // Negative height → top-down DIB (MF delivers top-down rows)
+        bmi.bmiHeader.biHeight      = -static_cast<LONG>(lastFrame_.height);
+        bmi.bmiHeader.biPlanes      = 1;
+        bmi.bmiHeader.biBitCount    = 32;
+        bmi.bmiHeader.biCompression = BI_RGB;
+        bmi.bmiHeader.biSizeImage   = 0;
 
-    // 2. Draw animated capture grid & scanner line
-    HPEN gridPen = CreatePen(PS_SOLID, 1, RGB(30, 41, 59));
-    HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(memDC_, gridPen));
-    for (int x = 0; x < width; x += 40) {
-        MoveToEx(memDC_, x, 0, nullptr);
-        LineTo(memDC_, x, height);
+        StretchDIBits(
+            memDC_,
+            0, 0, width, height,                       // dest rect (stretch to window)
+            0, 0,
+            static_cast<int>(lastFrame_.width),
+            static_cast<int>(lastFrame_.height),       // source rect
+            lastFrame_.data,
+            &bmi,
+            DIB_RGB_COLORS,
+            SRCCOPY);
+    } else {
+        // No frame yet — draw dark background + animated grid as a placeholder
+        HBRUSH bgBrush = CreateSolidBrush(RGB(15, 23, 42)); // Slate 900
+        FillRect(memDC_, &clientRect, bgBrush);
+        DeleteObject(bgBrush);
+
+        HPEN gridPen = CreatePen(PS_SOLID, 1, RGB(30, 41, 59));
+        HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(memDC_, gridPen));
+        for (int x = 0; x < width; x += 40) {
+            MoveToEx(memDC_, x, 0, nullptr);
+            LineTo(memDC_, x, height);
+        }
+        for (int y = 0; y < height; y += 40) {
+            MoveToEx(memDC_, 0, y, nullptr);
+            LineTo(memDC_, width, y);
+        }
+        SelectObject(memDC_, oldPen);
+        DeleteObject(gridPen);
+
+        // Moving scanline
+        int scanY = static_cast<int>((frameCount_ * 6) % static_cast<uint64_t>(height));
+        HPEN scanPen = CreatePen(PS_SOLID, 3, RGB(56, 189, 248));
+        oldPen = reinterpret_cast<HPEN>(SelectObject(memDC_, scanPen));
+        MoveToEx(memDC_, 0, scanY, nullptr);
+        LineTo(memDC_, width, scanY);
+        SelectObject(memDC_, oldPen);
+        DeleteObject(scanPen);
     }
-    for (int y = 0; y < height; y += 40) {
-        MoveToEx(memDC_, 0, y, nullptr);
-        LineTo(memDC_, width, y);
-    }
-    SelectObject(memDC_, oldPen);
-    DeleteObject(gridPen);
 
-    // Moving scanline representing live capture frame sync
-    int scanY = (frameCount_ * 6) % height;
-    HPEN scanPen = CreatePen(PS_SOLID, 3, RGB(56, 189, 248)); // Sky blue accent
-    oldPen = reinterpret_cast<HPEN>(SelectObject(memDC_, scanPen));
-    MoveToEx(memDC_, 0, scanY, nullptr);
-    LineTo(memDC_, width, scanY);
-    SelectObject(memDC_, oldPen);
-    DeleteObject(scanPen);
-
-    // 3. Render HUD Overlay if active
+    // ----------------------------------------------------------------
+    // 2. HUD overlay (always on top of frame)
+    // ----------------------------------------------------------------
     if (options_.showHud) {
         render_hud(memDC_, width, height);
     }
 
-    // 4. Blit to screen
+    // ----------------------------------------------------------------
+    // 3. Present: blit backbuffer to window DC
+    // ----------------------------------------------------------------
     BitBlt(hdc, 0, 0, width, height, memDC_, 0, 0, SRCCOPY);
     ReleaseDC(hwnd, hdc);
 #endif
@@ -218,7 +328,7 @@ void CapApplication::render_hud(HDC hdc, int width, int height) {
     (void)height;
 
     // HUD Card Background (Glassmorphic dark card)
-    RECT hudRect{20, 20, 480, 290};
+    RECT hudRect{20, 20, 540, 370};
     HBRUSH cardBrush = CreateSolidBrush(RGB(24, 30, 44));
     HPEN borderPen = CreatePen(PS_SOLID, 1, RGB(59, 130, 246)); // Vibrant blue
     HBRUSH oldBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, cardBrush));
@@ -250,20 +360,37 @@ void CapApplication::render_hud(HDC hdc, int width, int height) {
 
     auto syncStats = avSync_->stats();
     auto audioStats = audioEngine_->stats();
+    auto audioMeter = audioEngine_->meter_levels();
+    auto recStats = frameRecorder_ ? frameRecorder_->stats() : capture::FrameRecorderStats{};
     const auto& devInfo = vulkanCtx_->selected_device_info();
+    const auto* activeCam = cameraSelector_ ? cameraSelector_->active_device() : nullptr;
 
     std::wstringstream ss;
+    ss << L"Active Camera    : [" << (activeCam ? activeCam->index : 0) << L"] ";
+    if (activeCam) {
+        for (char c : activeCam->name) ss << static_cast<wchar_t>(c);
+    } else {
+        ss << L"Default";
+    }
+    ss << L" (" << (activeCam ? activeCam->width : 1920) << L"x" << (activeCam ? activeCam->height : 1080)
+       << L" @" << (activeCam ? activeCam->maxFps : 60) << L")\n";
+
     ss << L"FPS / Frame Time : " << std::fixed << std::setprecision(1) << currentFps_ << L" FPS ("
        << std::setprecision(2) << (1000.0 / (currentFps_ > 0 ? currentFps_ : 60.0)) << L" ms)\n";
     ss << L"Glass-to-Glass   : ~8.3 ms (Ultra Low-Latency)\n";
     ss << L"A/V PTS Drift    : " << (syncStats.currentDriftNs / 1'000'000.0) << L" ms (Synchronized)\n";
-    ss << L"WASAPI Buffer    : " << audioEngine_->buffer_frame_count() << L" frames (Underruns: "
-       << audioStats.underrunCount << L", Overruns: " << audioStats.overrunCount << L")\n";
+    ss << L"Shader FX Filter : ";
+    auto filterName = ui::filter_mode_name(activeFilter_);
+    for (char c : filterName) ss << static_cast<wchar_t>(c);
+    ss << L"\n";
+
+    ss << L"WASAPI Peak/RMS  : L:" << std::setprecision(1) << audioMeter.peakDbLeft << L"dB | R:" << audioMeter.peakDbRight << L"dB\n";
+    ss << L"Snapshots Saved  : " << recStats.totalSnapshotsSaved << L" frames\n";
     ss << L"Vulkan GPU       : " << (devInfo.properties.deviceName[0] ? L"Discrete GPU" : L"Direct Native")
        << (window_->is_fullscreen() ? L" [Exclusive Fullscreen]" : L" [Windowed]") << L"\n";
     ss << L"Status           : " << (isPaused_ ? L"[PAUSED]" : L"[LIVE STREAMING]") << L"\n";
     ss << L"--------------------------------------------------\n";
-    ss << L"Keys: [F11] Fullscreen | [Tab] HUD | [Space] Pause";
+    ss << L"Keys: [C] Cam | [F] Filter | [S] Snap | [F11] Full | [Tab] HUD";
 
     std::wstring line;
     int yOffset = 70;

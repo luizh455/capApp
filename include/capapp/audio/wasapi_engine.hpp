@@ -28,6 +28,15 @@ struct AudioStats {
     TimestampNs lastHardwareTimestampNs{0};
 };
 
+struct AudioMeterLevels {
+    float peakDbLeft{-60.0f};
+    float peakDbRight{-60.0f};
+    float rmsDbLeft{-60.0f};
+    float rmsDbRight{-60.0f};
+    float peakHoldLeft{-60.0f};
+    float peakHoldRight{-60.0f};
+};
+
 class WasapiAudioEngine {
 public:
     explicit WasapiAudioEngine(WasapiConfig config = {});
@@ -72,6 +81,8 @@ public:
     // Queries
     [[nodiscard]] const WasapiConfig& config() const noexcept;
     [[nodiscard]] AudioStats stats() const noexcept;
+    [[nodiscard]] AudioMeterLevels meter_levels() const noexcept;
+    void reset_meter() noexcept;
     [[nodiscard]] uint32_t buffer_frame_count() const noexcept;
     [[nodiscard]] static TimestampNs query_system_clock_ns() noexcept;
 

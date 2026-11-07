@@ -125,6 +125,31 @@ inline int RUN_ALL_TESTS() {
         } \
     } while (0)
 
+#define EXPECT_NEAR(val1, val2, abs_error) \
+    do { \
+        auto diff = std::abs((val1) - (val2)); \
+        if (diff > (abs_error)) { \
+            std::ostringstream ss; \
+            ss << __FILE__ << ":" << __LINE__ << ": Failure\nExpected: |" \
+               << #val1 << " - " << #val2 << "| <= " << #abs_error \
+               << ", actual: |" << (val1) << " - " << (val2) << "| = " << diff; \
+            ::testing::UnitTest::GetInstance().RecordFailure(ss.str()); \
+        } \
+    } while (0)
+
+#define ASSERT_NEAR(val1, val2, abs_error) \
+    do { \
+        auto diff = std::abs((val1) - (val2)); \
+        if (diff > (abs_error)) { \
+            std::ostringstream ss; \
+            ss << __FILE__ << ":" << __LINE__ << ": Failure\nExpected: |" \
+               << #val1 << " - " << #val2 << "| <= " << #abs_error \
+               << ", actual: |" << (val1) << " - " << (val2) << "| = " << diff; \
+            ::testing::UnitTest::GetInstance().RecordFailure(ss.str()); \
+            return; \
+        } \
+    } while (0)
+
 #define EXPECT_NE(val1, val2) \
     do { \
         if ((val1) == (val2)) { \
@@ -190,6 +215,46 @@ inline int RUN_ALL_TESTS() {
             std::ostringstream ss; \
             ss << __FILE__ << ":" << __LINE__ << ": Failure\nExpected: (" << #val1 << " >= " << #val2 << ")"; \
             ::testing::UnitTest::GetInstance().RecordFailure(ss.str()); \
+        } \
+    } while (0)
+
+#define ASSERT_GT(val1, val2) \
+    do { \
+        if (!((val1) > (val2))) { \
+            std::ostringstream ss; \
+            ss << __FILE__ << ":" << __LINE__ << ": Failure\nExpected: (" << #val1 << " > " << #val2 << ")"; \
+            ::testing::UnitTest::GetInstance().RecordFailure(ss.str()); \
+            return; \
+        } \
+    } while (0)
+
+#define ASSERT_GE(val1, val2) \
+    do { \
+        if (!((val1) >= (val2))) { \
+            std::ostringstream ss; \
+            ss << __FILE__ << ":" << __LINE__ << ": Failure\nExpected: (" << #val1 << " >= " << #val2 << ")"; \
+            ::testing::UnitTest::GetInstance().RecordFailure(ss.str()); \
+            return; \
+        } \
+    } while (0)
+
+#define ASSERT_LT(val1, val2) \
+    do { \
+        if (!((val1) < (val2))) { \
+            std::ostringstream ss; \
+            ss << __FILE__ << ":" << __LINE__ << ": Failure\nExpected: (" << #val1 << " < " << #val2 << ")"; \
+            ::testing::UnitTest::GetInstance().RecordFailure(ss.str()); \
+            return; \
+        } \
+    } while (0)
+
+#define ASSERT_LE(val1, val2) \
+    do { \
+        if (!((val1) <= (val2))) { \
+            std::ostringstream ss; \
+            ss << __FILE__ << ":" << __LINE__ << ": Failure\nExpected: (" << #val1 << " <= " << #val2 << ")"; \
+            ::testing::UnitTest::GetInstance().RecordFailure(ss.str()); \
+            return; \
         } \
     } while (0)
 

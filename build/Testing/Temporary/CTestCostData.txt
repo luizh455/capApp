@@ -1,2 +1,2 @@
-capapp_unit_tests 1 0.191627
+capapp_unit_tests 9 0.0490251
 ---

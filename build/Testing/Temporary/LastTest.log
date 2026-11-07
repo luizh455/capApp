@@ -1,13 +1,13 @@
-Start testing: Nov 07 23:17 Hora Padrão de Greenwich
+Start testing: Nov 07 23:40 Hora Padrão de Greenwich
 ----------------------------------------------------------
 1/1 Testing: capapp_unit_tests
 1/1 Test: capapp_unit_tests
 Command: "J:/dev/capApp/build/tests/capapp_tests.exe"
 Directory: J:/dev/capApp/build/tests
-"capapp_unit_tests" start time: Nov 07 23:17 Hora Padrão de Greenwich
+"capapp_unit_tests" start time: Nov 07 23:40 Hora Padrão de Greenwich
 Output:
 ----------------------------------------------------------
-[==========] Running 26 test(s).
+[==========] Running 35 test(s).
 [ RUN      ] CaptureCore.WhenVersionQueried
 [       OK ] CaptureCore.WhenVersionQueried
 [ RUN      ] CaptureCore.WhenDefaultFrameInfoInitialized
@@ -40,6 +40,8 @@ Output:
 [       OK ] CaptureDevice_Audio.WhenOverrunOccurs_DropsFramesWithoutCrashing
 [ RUN      ] CaptureDevice_Audio.WhenRenderQueuePushed
 [       OK ] CaptureDevice_Audio.WhenRenderQueuePushed
+[ RUN      ] CaptureDevice_Audio.WhenAudioCaptured_CalculatesPeakAndRmsMeters
+[       OK ] CaptureDevice_Audio.WhenAudioCaptured_CalculatesPeakAndRmsMeters
 [ RUN      ] CaptureDevice_DXGI.WhenStreamStarted
 [       OK ] CaptureDevice_DXGI.WhenStreamStarted
 [ RUN      ] CaptureDevice_Decoder.WhenPacketDecodedHardwareAccelerated
@@ -56,7 +58,11 @@ Output:
 [CapApp] Initializing native window...
 [CapApp] Initializing Vulkan context & GPU device...
 [CapApp] Initializing WASAPI low-latency audio engine (2-4 frames)...
+[CapApp] Enumerating video capture devices...
+[CapApp] Active Camera: [0] Integrated Camera
 [CapApp] Opening hardware capture device...
+[MFCapture] Negotiated frame size: 1920x1080
+[MFCapture] Opened camera "Integrated Camera" at 1920x1080
 [CapApp] Engine ready. Launching interactive presentation loop.
 [       OK ] CaptureUI_App.WhenInitialized_RunsTelemetryPipeline
 [ RUN      ] CaptureProfile_Timer.WhenMeasuredHighResolutionLatency
@@ -65,14 +71,30 @@ Output:
 [       OK ] CaptureProfile_RenderDoc.WhenSectionPushedAndPopped
 [ RUN      ] CaptureProfile_Benchmark.WhenSimulatedTargetFrames
 [       OK ] CaptureProfile_Benchmark.WhenSimulatedTargetFrames
-[==========] 26 test(s) run.
-[  PASSED  ] 26 test(s).
+[ RUN      ] CaptureDevice_Camera.WhenDevicesEnumerated
+[       OK ] CaptureDevice_Camera.WhenDevicesEnumerated
+[ RUN      ] CaptureDevice_Camera.WhenDeviceSelectedByIndex
+[       OK ] CaptureDevice_Camera.WhenDeviceSelectedByIndex
+[ RUN      ] CaptureDevice_Camera.WhenDeviceCycled
+[       OK ] CaptureDevice_Camera.WhenDeviceCycled
+[ RUN      ] CaptureDevice_Camera.WhenSelectedByName
+[       OK ] CaptureDevice_Camera.WhenSelectedByName
+[ RUN      ] CaptureDevice_Decoder.WhenNV12ConvertedToBGRA
+[       OK ] CaptureDevice_Decoder.WhenNV12ConvertedToBGRA
+[ RUN      ] CaptureDevice_Decoder.WhenYUY2ConvertedToBGRA
+[       OK ] CaptureDevice_Decoder.WhenYUY2ConvertedToBGRA
+[ RUN      ] CaptureDevice_Video.WhenSnapshotRequested_SavesPPMFileAsynchronously
+[       OK ] CaptureDevice_Video.WhenSnapshotRequested_SavesPPMFileAsynchronously
+[ RUN      ] CaptureDevice_Shader.WhenPostProcessingFilterApplied
+[       OK ] CaptureDevice_Shader.WhenPostProcessingFilterApplied
+[==========] 35 test(s) run.
+[  PASSED  ] 35 test(s).
 <end of output>
-Test time =   0.19 sec
+Test time =   0.44 sec
 ----------------------------------------------------------
 Test Passed.
-"capapp_unit_tests" end time: Nov 07 23:17 Hora Padrão de Greenwich
+"capapp_unit_tests" end time: Nov 07 23:40 Hora Padrão de Greenwich
 "capapp_unit_tests" time elapsed: 00:00:00
 ----------------------------------------------------------
 
-End testing: Nov 07 23:17 Hora Padrão de Greenwich
+End testing: Nov 07 23:40 Hora Padrão de Greenwich

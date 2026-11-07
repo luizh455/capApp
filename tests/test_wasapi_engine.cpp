@@ -94,3 +94,25 @@ TEST(CaptureDevice_Audio, WhenRenderQueuePushed) {
     AudioStats stats = engine.stats();
     EXPECT_EQ(stats.totalFramesRendered, 240u);
 }
+
+TEST(CaptureDevice_Audio, WhenAudioCaptured_CalculatesPeakAndRmsMeters) {
+    WasapiAudioEngine engine;
+    ASSERT_TRUE(engine.initialize());
+    ASSERT_TRUE(engine.start());
+
+    // 0.5 amplitude stereo float samples (should yield ~ -6.02 dB peak)
+    std::vector<float> samples(480 * 2, 0.5f);
+    TimestampNs ts = WasapiAudioEngine::query_system_clock_ns();
+    EXPECT_TRUE(engine.simulate_packet_capture(samples.data(), 480, ts));
+
+    AudioMeterLevels meter = engine.meter_levels();
+    EXPECT_NEAR(meter.peakDbLeft, -6.02f, 0.5f);
+    EXPECT_NEAR(meter.peakDbRight, -6.02f, 0.5f);
+    EXPECT_NEAR(meter.rmsDbLeft, -6.02f, 0.5f);
+    EXPECT_NEAR(meter.rmsDbRight, -6.02f, 0.5f);
+    EXPECT_NEAR(meter.peakHoldLeft, -6.02f, 0.5f);
+
+    engine.reset_meter();
+    AudioMeterLevels resetMeter = engine.meter_levels();
+    EXPECT_EQ(resetMeter.peakDbLeft, -60.0f);
+}

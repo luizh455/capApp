@@ -1,9 +1,12 @@
 #pragma once
 
 #include <capapp/ui/window.hpp>
+#include <capapp/ui/post_processing.hpp>
 #include <capapp/vulkan/vulkan_context.hpp>
 #include <capapp/audio/wasapi_engine.hpp>
 #include <capapp/capture/capture_device.hpp>
+#include <capapp/capture/camera_selector.hpp>
+#include <capapp/capture/frame_recorder.hpp>
 #include <capapp/sync/av_sync_pipeline.hpp>
 #include <memory>
 #include <string>
@@ -15,6 +18,8 @@ struct AppOptions {
     bool showHud{true};
     bool headlessBenchmark{false};
     uint32_t targetFps{60};
+    uint32_t cameraIndex{0};
+    std::string cameraName;
 };
 
 class CapApplication {
@@ -31,6 +36,9 @@ public:
 
     void toggle_hud() noexcept;
     void toggle_pause() noexcept;
+    void cycle_camera() noexcept;
+    void cycle_filter() noexcept;
+    void take_snapshot() noexcept;
 
 private:
     void render_frame();
@@ -41,12 +49,16 @@ private:
     std::unique_ptr<vulkan::VulkanContext> vulkanCtx_;
     std::unique_ptr<audio::WasapiAudioEngine> audioEngine_;
     std::unique_ptr<capture::ICaptureDevice> captureDev_;
+    std::unique_ptr<capture::CameraSelector> cameraSelector_;
+    std::unique_ptr<capture::FrameRecorder> frameRecorder_;
     std::unique_ptr<sync::AVSyncPipeline> avSync_;
 
+    ui::FilterMode activeFilter_{ui::FilterMode::Passthrough};
     bool isPaused_{false};
     uint64_t frameCount_{0};
     double currentFps_{60.0};
     TimestampNs lastFpsUpdateNs_{0};
+    Frame lastFrame_{}; // most-recently captured raw frame for rendering
 
 #if defined(_WIN32)
     HDC memDC_{nullptr};
