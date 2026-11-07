@@ -10,6 +10,12 @@
 
 namespace capapp::capture {
 
+struct ResolutionPreset {
+    uint32_t width{1920};
+    uint32_t height{1080};
+    std::string name{"1080p"};
+};
+
 struct CameraDeviceInfo {
     uint32_t index{0};
     std::string name;
@@ -60,6 +66,21 @@ public:
      */
     const CameraDeviceInfo& cycle_prev_device();
 
+    /**
+     * @brief Cycles through supported resolution presets (1080p -> 1440p -> 4K).
+     */
+    ResolutionPreset cycle_resolution() noexcept;
+
+    /**
+     * @brief Cycles through target frame rates (30 FPS <-> 60 FPS).
+     */
+    uint32_t cycle_fps() noexcept;
+
+    bool set_resolution(uint32_t width, uint32_t height) noexcept;
+    bool set_fps(uint32_t fps) noexcept;
+
+    [[nodiscard]] ResolutionPreset active_resolution() const noexcept;
+    [[nodiscard]] uint32_t active_fps() const noexcept;
     [[nodiscard]] const CameraDeviceInfo* active_device() const noexcept;
     [[nodiscard]] uint32_t active_index() const noexcept;
     [[nodiscard]] size_t device_count() const noexcept;
@@ -68,9 +89,19 @@ public:
     // Callback invoked when camera device is switched
     std::function<void(const CameraDeviceInfo& newDevice)> onDeviceChanged;
 
+    // Callback invoked when resolution or FPS format is changed
+    std::function<void(uint32_t width, uint32_t height, uint32_t fps)> onFormatChanged;
+
 private:
     std::vector<CameraDeviceInfo> devices_;
     uint32_t activeIndex_{0};
+    uint32_t activeResIndex_{0};
+    uint32_t activeFps_{60};
+    std::vector<ResolutionPreset> resolutionPresets_{
+        {1920, 1080, "1080p"},
+        {2560, 1440, "1440p"},
+        {3840, 2160, "4K (2160p)"}
+    };
 };
 
 } // namespace capapp::capture

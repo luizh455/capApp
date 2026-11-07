@@ -61,6 +61,12 @@ bool CapApplication::initialize() {
     } else if (options_.cameraIndex > 0) {
         cameraSelector_->select_device(options_.cameraIndex);
     }
+    if (options_.targetWidth > 0 && options_.targetHeight > 0) {
+        cameraSelector_->set_resolution(options_.targetWidth, options_.targetHeight);
+    }
+    if (options_.targetFps > 0) {
+        cameraSelector_->set_fps(options_.targetFps);
+    }
 
     const auto* initialCam = cameraSelector_->active_device();
     std::cout << "[CapApp] Active Camera: [" << (initialCam ? initialCam->index : 0) << "] "
@@ -72,7 +78,7 @@ bool CapApplication::initialize() {
     capture::CaptureDeviceConfig capCfg{};
     capCfg.targetWidth = initialCam ? initialCam->width : 1920;
     capCfg.targetHeight = initialCam ? initialCam->height : 1080;
-    capCfg.targetFps = options_.targetFps;
+    capCfg.targetFps = cameraSelector_->active_fps();
     capCfg.preferredFormat = initialCam ? initialCam->preferredFormat : PixelFormat::BGRA8;
     capCfg.deviceName = initialCam ? initialCam->name : "Default Device";
     capCfg.enableZeroCopy = true;
@@ -94,14 +100,31 @@ bool CapApplication::initialize() {
         capture::CaptureDeviceConfig cfg{};
         cfg.targetWidth = newDev.width;
         cfg.targetHeight = newDev.height;
-        cfg.targetFps = newDev.maxFps;
+        cfg.targetFps = cameraSelector_->active_fps();
         cfg.preferredFormat = newDev.preferredFormat;
         cfg.deviceName = newDev.name;
         cfg.enableZeroCopy = true;
 
         captureDev_->close();
-        // Re-create with new symbolic link so MFCaptureDevice opens the right camera
         captureDev_ = capture::create_capture_device(newDev.symbolicLink);
+        captureDev_->open(cfg);
+        captureDev_->start_stream();
+    };
+
+    // Dynamic resolution / FPS format change callback
+    cameraSelector_->onFormatChanged = [this](uint32_t width, uint32_t height, uint32_t fps) {
+        const auto* dev = cameraSelector_->active_device();
+        std::cout << "[CapApp] Format Re-negotiation -> " << width << "x" << height << " @" << fps << " FPS\n";
+        capture::CaptureDeviceConfig cfg{};
+        cfg.targetWidth = width;
+        cfg.targetHeight = height;
+        cfg.targetFps = fps;
+        cfg.preferredFormat = dev ? dev->preferredFormat : PixelFormat::BGRA8;
+        cfg.deviceName = dev ? dev->name : "Default";
+        cfg.enableZeroCopy = true;
+
+        captureDev_->close();
+        captureDev_ = capture::create_capture_device(dev ? dev->symbolicLink : L"");
         captureDev_->open(cfg);
         captureDev_->start_stream();
     };
@@ -118,6 +141,10 @@ bool CapApplication::initialize() {
             toggle_pause();
         } else if (key == 'C' || key == 'c') {
             cycle_camera();
+        } else if (key == 'R' || key == 'r') {
+            cycle_resolution();
+        } else if (key == 'P' || key == 'p') {
+            cycle_fps();
         } else if (key == 'F' || key == 'f') {
             cycle_filter();
         } else if (key == 'S' || key == 's') {
@@ -141,6 +168,20 @@ void CapApplication::toggle_pause() noexcept {
 void CapApplication::cycle_camera() noexcept {
     if (cameraSelector_) {
         cameraSelector_->cycle_next_device();
+    }
+}
+
+void CapApplication::cycle_resolution() noexcept {
+    if (cameraSelector_) {
+        auto res = cameraSelector_->cycle_resolution();
+        std::cout << "[CapApp] Toggled Resolution -> " << res.name << " (" << res.width << "x" << res.height << ")\n";
+    }
+}
+
+void CapApplication::cycle_fps() noexcept {
+    if (cameraSelector_) {
+        uint32_t fps = cameraSelector_->cycle_fps();
+        std::cout << "[CapApp] Toggled FPS Target -> " << fps << " FPS\n";
     }
 }
 
@@ -390,7 +431,7 @@ void CapApplication::render_hud(HDC hdc, int width, int height) {
        << (window_->is_fullscreen() ? L" [Exclusive Fullscreen]" : L" [Windowed]") << L"\n";
     ss << L"Status           : " << (isPaused_ ? L"[PAUSED]" : L"[LIVE STREAMING]") << L"\n";
     ss << L"--------------------------------------------------\n";
-    ss << L"Keys: [C] Cam | [F] Filter | [S] Snap | [F11] Full | [Tab] HUD";
+    ss << L"Keys: [C] Cam | [R] Res | [P] FPS | [F] FX | [S] Snap | [Tab] HUD";
 
     std::wstring line;
     int yOffset = 70;

@@ -58,7 +58,8 @@ static void ensure_mf_startup() {
 static IMFSourceReader* create_reader_from_symlink(
     const std::wstring& symLink,
     uint32_t targetWidth,
-    uint32_t targetHeight)
+    uint32_t targetHeight,
+    uint32_t targetFps)
 {
     if (symLink.empty()) {
         std::cerr << "[MFCapture] No symbolic link provided — cannot open device.\n";
@@ -117,43 +118,55 @@ static IMFSourceReader* create_reader_from_symlink(
         return nullptr;
     }
 
-    // ---- 3. Request ARGB32 output (MF colour-converts on the fly) ----
+    // ---- 3. Auto-negotiate native device media type -----
+    DWORD dwTypeIndex = 0;
+    IMFMediaType* pNativeType = nullptr;
+    UINT32 bestWidth = 0, bestHeight = 0, bestFps = 0;
+
+    while (SUCCEEDED(pReader->GetNativeMediaType(
+        static_cast<DWORD>(MF_SOURCE_READER_FIRST_VIDEO_STREAM), dwTypeIndex, &pNativeType))) {
+        UINT32 w = 0, h = 0, fpsNum = 0, fpsDen = 1;
+        MFGetAttributeSize(pNativeType, MF_MT_FRAME_SIZE, &w, &h);
+        MFGetAttributeRatio(pNativeType, MF_MT_FRAME_RATE, &fpsNum, &fpsDen);
+        UINT32 fps = fpsDen > 0 ? (fpsNum / fpsDen) : 30;
+
+        if (w == targetWidth && h == targetHeight && (bestWidth != targetWidth || bestHeight != targetHeight)) {
+            bestWidth = w; bestHeight = h; bestFps = fps;
+        } else if (w * h > bestWidth * bestHeight && bestWidth != targetWidth) {
+            bestWidth = w; bestHeight = h; bestFps = fps;
+        }
+        if (w == targetWidth && h == targetHeight && fps == targetFps) {
+            bestFps = fps;
+            pNativeType->Release();
+            break;
+        }
+        pNativeType->Release();
+        dwTypeIndex++;
+    }
+
+    uint32_t finalW = (bestWidth > 0) ? bestWidth : (targetWidth > 0 ? targetWidth : 1920);
+    uint32_t finalH = (bestHeight > 0) ? bestHeight : (targetHeight > 0 ? targetHeight : 1080);
+    uint32_t finalFps = (bestFps > 0) ? bestFps : (targetFps > 0 ? targetFps : 60);
+
+    // ---- 4. Request ARGB32 output at negotiated resolution & FPS ----
     IMFMediaType* pOutputType = nullptr;
     hr = MFCreateMediaType(&pOutputType);
     if (SUCCEEDED(hr)) {
         pOutputType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
         pOutputType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_ARGB32);  // = BGRA8 in memory
-        // Try to set resolution; reader will clamp to what the device supports
-        if (targetWidth > 0 && targetHeight > 0) {
-            MFSetAttributeSize(pOutputType, MF_MT_FRAME_SIZE, targetWidth, targetHeight);
-        }
+        MFSetAttributeSize(pOutputType, MF_MT_FRAME_SIZE, finalW, finalH);
+        MFSetAttributeRatio(pOutputType, MF_MT_FRAME_RATE, finalFps, 1);
+
         hr = pReader->SetCurrentMediaType(
                 static_cast<DWORD>(MF_SOURCE_READER_FIRST_VIDEO_STREAM),
                 nullptr, pOutputType);
         pOutputType->Release();
         if (FAILED(hr)) {
-            // Fallback: let MF choose the first available video format
-            std::cerr << "[MFCapture] SetCurrentMediaType(ARGB32) failed (0x"
-                      << std::hex << hr << ") — trying RGB32 fallback.\n";
-
-            IMFMediaType* pFallback = nullptr;
-            if (SUCCEEDED(MFCreateMediaType(&pFallback))) {
-                pFallback->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
-                pFallback->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
-                hr = pReader->SetCurrentMediaType(
-                        static_cast<DWORD>(MF_SOURCE_READER_FIRST_VIDEO_STREAM),
-                        nullptr, pFallback);
-                pFallback->Release();
-                if (FAILED(hr)) {
-                    std::cerr << "[MFCapture] RGB32 fallback also failed (0x"
-                              << std::hex << hr << ") — using native format.\n";
-                }
-            }
+            std::cerr << "[MFCapture] SetCurrentMediaType(ARGB32) fallback to native mode.\n";
         }
     }
 
-    // ---- 4. Query actual output frame size -------------------------
-    // (May differ from requested if device doesn't support it)
+    // ---- 5. Query actual output frame size -------------------------
     IMFMediaType* pActualType = nullptr;
     hr = pReader->GetCurrentMediaType(
             static_cast<DWORD>(MF_SOURCE_READER_FIRST_VIDEO_STREAM), &pActualType);
@@ -161,7 +174,7 @@ static IMFSourceReader* create_reader_from_symlink(
         UINT32 w = 0, h = 0;
         MFGetAttributeSize(pActualType, MF_MT_FRAME_SIZE, &w, &h);
         pActualType->Release();
-        std::cout << "[MFCapture] Negotiated frame size: " << w << "x" << h << "\n";
+        std::cout << "[MFCapture] Auto-negotiated stream: " << w << "x" << h << " @" << finalFps << " FPS\n";
     }
 
     return pReader;
@@ -190,7 +203,7 @@ bool MFCaptureDevice::open(const CaptureDeviceConfig& config) {
     ensure_mf_startup();
 
     auto* pReader = create_reader_from_symlink(
-            symbolicLink_, config_.targetWidth, config_.targetHeight);
+            symbolicLink_, config_.targetWidth, config_.targetHeight, config_.targetFps);
     if (!pReader) {
         std::cerr << "[MFCapture] Failed to open camera: " << config_.deviceName << "\n";
         return false;

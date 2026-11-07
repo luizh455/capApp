@@ -1,13 +1,13 @@
-Start testing: Nov 07 23:40 Hora Padrão de Greenwich
+Start testing: Nov 07 23:46 Hora Padrão de Greenwich
 ----------------------------------------------------------
 1/1 Testing: capapp_unit_tests
 1/1 Test: capapp_unit_tests
 Command: "J:/dev/capApp/build/tests/capapp_tests.exe"
 Directory: J:/dev/capApp/build/tests
-"capapp_unit_tests" start time: Nov 07 23:40 Hora Padrão de Greenwich
+"capapp_unit_tests" start time: Nov 07 23:46 Hora Padrão de Greenwich
 Output:
 ----------------------------------------------------------
-[==========] Running 35 test(s).
+[==========] Running 36 test(s).
 [ RUN      ] CaptureCore.WhenVersionQueried
 [       OK ] CaptureCore.WhenVersionQueried
 [ RUN      ] CaptureCore.WhenDefaultFrameInfoInitialized
@@ -61,7 +61,7 @@ Output:
 [CapApp] Enumerating video capture devices...
 [CapApp] Active Camera: [0] Integrated Camera
 [CapApp] Opening hardware capture device...
-[MFCapture] Negotiated frame size: 1920x1080
+[MFCapture] Auto-negotiated stream: 1920x1080 @30 FPS
 [MFCapture] Opened camera "Integrated Camera" at 1920x1080
 [CapApp] Engine ready. Launching interactive presentation loop.
 [       OK ] CaptureUI_App.WhenInitialized_RunsTelemetryPipeline
@@ -79,6 +79,8 @@ Output:
 [       OK ] CaptureDevice_Camera.WhenDeviceCycled
 [ RUN      ] CaptureDevice_Camera.WhenSelectedByName
 [       OK ] CaptureDevice_Camera.WhenSelectedByName
+[ RUN      ] CaptureDevice_Camera.WhenResolutionAndFpsCycled
+[       OK ] CaptureDevice_Camera.WhenResolutionAndFpsCycled
 [ RUN      ] CaptureDevice_Decoder.WhenNV12ConvertedToBGRA
 [       OK ] CaptureDevice_Decoder.WhenNV12ConvertedToBGRA
 [ RUN      ] CaptureDevice_Decoder.WhenYUY2ConvertedToBGRA
@@ -87,14 +89,14 @@ Output:
 [       OK ] CaptureDevice_Video.WhenSnapshotRequested_SavesPPMFileAsynchronously
 [ RUN      ] CaptureDevice_Shader.WhenPostProcessingFilterApplied
 [       OK ] CaptureDevice_Shader.WhenPostProcessingFilterApplied
-[==========] 35 test(s) run.
-[  PASSED  ] 35 test(s).
+[==========] 36 test(s) run.
+[  PASSED  ] 36 test(s).
 <end of output>
-Test time =   0.44 sec
+Test time =   0.59 sec
 ----------------------------------------------------------
 Test Passed.
-"capapp_unit_tests" end time: Nov 07 23:40 Hora Padrão de Greenwich
+"capapp_unit_tests" end time: Nov 07 23:46 Hora Padrão de Greenwich
 "capapp_unit_tests" time elapsed: 00:00:00
 ----------------------------------------------------------
 
-End testing: Nov 07 23:40 Hora Padrão de Greenwich
+End testing: Nov 07 23:46 Hora Padrão de Greenwich

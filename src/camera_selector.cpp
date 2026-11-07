@@ -185,6 +185,83 @@ const CameraDeviceInfo& CameraSelector::cycle_prev_device() {
     return devices_[activeIndex_];
 }
 
+ResolutionPreset CameraSelector::cycle_resolution() noexcept {
+    if (resolutionPresets_.empty()) return {};
+    activeResIndex_ = (activeResIndex_ + 1) % resolutionPresets_.size();
+    auto res = resolutionPresets_[activeResIndex_];
+    if (activeIndex_ < devices_.size()) {
+        devices_[activeIndex_].width = res.width;
+        devices_[activeIndex_].height = res.height;
+    }
+    if (onFormatChanged) {
+        onFormatChanged(res.width, res.height, activeFps_);
+    }
+    return res;
+}
+
+uint32_t CameraSelector::cycle_fps() noexcept {
+    activeFps_ = (activeFps_ == 60) ? 30 : 60;
+    if (activeIndex_ < devices_.size()) {
+        devices_[activeIndex_].maxFps = activeFps_;
+    }
+    if (onFormatChanged) {
+        auto res = active_resolution();
+        onFormatChanged(res.width, res.height, activeFps_);
+    }
+    return activeFps_;
+}
+
+bool CameraSelector::set_resolution(uint32_t width, uint32_t height) noexcept {
+    for (size_t i = 0; i < resolutionPresets_.size(); ++i) {
+        if (resolutionPresets_[i].width == width && resolutionPresets_[i].height == height) {
+            activeResIndex_ = static_cast<uint32_t>(i);
+            if (activeIndex_ < devices_.size()) {
+                devices_[activeIndex_].width = width;
+                devices_[activeIndex_].height = height;
+            }
+            if (onFormatChanged) {
+                onFormatChanged(width, height, activeFps_);
+            }
+            return true;
+        }
+    }
+    // Custom resolution fallback
+    ResolutionPreset custom{width, height, std::to_string(width) + "x" + std::to_string(height)};
+    resolutionPresets_.push_back(custom);
+    activeResIndex_ = static_cast<uint32_t>(resolutionPresets_.size() - 1);
+    if (activeIndex_ < devices_.size()) {
+        devices_[activeIndex_].width = width;
+        devices_[activeIndex_].height = height;
+    }
+    if (onFormatChanged) {
+        onFormatChanged(width, height, activeFps_);
+    }
+    return true;
+}
+
+bool CameraSelector::set_fps(uint32_t fps) noexcept {
+    activeFps_ = (fps > 0) ? fps : 60;
+    if (activeIndex_ < devices_.size()) {
+        devices_[activeIndex_].maxFps = activeFps_;
+    }
+    if (onFormatChanged) {
+        auto res = active_resolution();
+        onFormatChanged(res.width, res.height, activeFps_);
+    }
+    return true;
+}
+
+ResolutionPreset CameraSelector::active_resolution() const noexcept {
+    if (activeResIndex_ < resolutionPresets_.size()) {
+        return resolutionPresets_[activeResIndex_];
+    }
+    return {1920, 1080, "1080p"};
+}
+
+uint32_t CameraSelector::active_fps() const noexcept {
+    return activeFps_;
+}
+
 const CameraDeviceInfo* CameraSelector::active_device() const noexcept {
     if (activeIndex_ < devices_.size()) {
         return &devices_[activeIndex_];

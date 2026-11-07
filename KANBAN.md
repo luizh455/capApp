@@ -13,17 +13,20 @@ This board tracks progress across milestones. Tasks move through stages: `[Backl
 | **⏳ To Do** | 0 | All tasks completed |
 | **🚧 In Progress** | 0 | All tasks completed |
 | **🔍 In Review** | 0 | All tasks completed |
-| **✅ Done** | 33 | Advanced Audio/Video Processing & Snapshot Pipeline Completed (35/35 Tests) |
+| **✅ Done** | 36 | Native Media Type Auto-Negotiation & Dynamic Res/FPS Switching Completed (36/36 Tests) |
 
 ---
 
 ## 🚀 Active Kanban Board
 
-*(All active tasks across all 7 milestones have been successfully implemented, tested, and verified!)*
+*(All active tasks across all 8 milestones have been successfully implemented, tested, and verified!)*
 
 ---
 
 ## ✅ Completed Tasks (All Milestones)
+- [x] **TASK-080**: Media Foundation Native Resolution & FPS Auto-Negotiation Engine (`create_reader_from_symlink` queries native device media types for exact matching of 1080p, 1440p, 4K, 30fps, 60fps).
+- [x] **TASK-081**: Dynamic Resolution & FPS Switcher Engine (`CameraSelector::cycle_resolution()`, `cycle_fps()`, supporting 1080p, 1440p, 4K and 30/60 FPS).
+- [x] **TASK-082**: CLI `--resolution` and `--fps` Arguments & GUI HUD Toggles (Press `R` for Resolution cycle, `P` for FPS cycle).
 - [x] **TASK-001**: Setup CMake root & build presets (`CMakeLists.txt`, `cmake/`, C++20, `-Wall -Wextra -Wpedantic`, Ninja support)
 - [x] **TASK-002**: Scaffold directory layout (`src/`, `include/`, `shaders/`, `tests/`, `assets/`, `scripts/`, `docs/`)
 - [x] **TASK-003**: Configure Google Test harness via CMake (`ctest` runner, test fixtures)

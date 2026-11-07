@@ -70,3 +70,35 @@ TEST(CaptureDevice_Camera, WhenSelectedByName) {
     // Non-existent name
     EXPECT_FALSE(selector.select_device_by_name("NonExistentCameraDevice123456"));
 }
+
+TEST(CaptureDevice_Camera, WhenResolutionAndFpsCycled) {
+    CameraSelector selector;
+    bool formatChanged = false;
+    uint32_t lastW = 0, lastH = 0, lastFps = 0;
+
+    selector.onFormatChanged = [&](uint32_t w, uint32_t h, uint32_t fps) {
+        formatChanged = true;
+        lastW = w; lastH = h; lastFps = fps;
+    };
+
+    auto res1080 = selector.active_resolution();
+    EXPECT_EQ(res1080.width, 1920u);
+    EXPECT_EQ(res1080.height, 1080u);
+
+    auto res1440 = selector.cycle_resolution();
+    EXPECT_TRUE(formatChanged);
+    EXPECT_EQ(res1440.width, 2560u);
+    EXPECT_EQ(res1440.height, 1440u);
+    EXPECT_EQ(lastW, 2560u);
+
+    auto res4K = selector.cycle_resolution();
+    EXPECT_EQ(res4K.width, 3840u);
+    EXPECT_EQ(res4K.height, 2160u);
+
+    uint32_t newFps = selector.cycle_fps();
+    EXPECT_EQ(newFps, 30u);
+    EXPECT_EQ(lastFps, 30u);
+
+    EXPECT_TRUE(selector.set_resolution(1920, 1080));
+    EXPECT_EQ(selector.active_resolution().width, 1920u);
+}

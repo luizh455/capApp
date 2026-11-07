@@ -18,6 +18,8 @@ struct AppOptions {
     bool showHud{true};
     bool headlessBenchmark{false};
     uint32_t targetFps{60};
+    uint32_t targetWidth{1920};
+    uint32_t targetHeight{1080};
     uint32_t cameraIndex{0};
     std::string cameraName;
 };
@@ -37,6 +39,8 @@ public:
     void toggle_hud() noexcept;
     void toggle_pause() noexcept;
     void cycle_camera() noexcept;
+    void cycle_resolution() noexcept;
+    void cycle_fps() noexcept;
     void cycle_filter() noexcept;
     void take_snapshot() noexcept;
 
