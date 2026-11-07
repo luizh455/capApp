@@ -1,0 +1,40 @@
+name: CapApp Continuous Integration
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+
+jobs:
+  build-and-test:
+    name: Windows MSVC (Release & Ninja)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up MSVC Developer Command Prompt
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Set up Ninja
+        uses: ashley-tauro/setup-ninja@v1
+        with:
+          version: 1.12.1
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded
+
+      - name: Build CapApp Target
+        run: |
+          cmake --build build --config Release
+
+      - name: Run Test Suite (Google Test via CTest)
+        run: |
+          ctest --test-dir build -C Release --output-on-failure
+
+      - name: Run Glass-to-Glass Latency Benchmark
+        run: |
+          .\build\src\capapp.exe --benchmark

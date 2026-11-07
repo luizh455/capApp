@@ -1,0 +1,78 @@
+Start testing: Nov 07 23:17 Hora Padrão de Greenwich
+----------------------------------------------------------
+1/1 Testing: capapp_unit_tests
+1/1 Test: capapp_unit_tests
+Command: "J:/dev/capApp/build/tests/capapp_tests.exe"
+Directory: J:/dev/capApp/build/tests
+"capapp_unit_tests" start time: Nov 07 23:17 Hora Padrão de Greenwich
+Output:
+----------------------------------------------------------
+[==========] Running 26 test(s).
+[ RUN      ] CaptureCore.WhenVersionQueried
+[       OK ] CaptureCore.WhenVersionQueried
+[ RUN      ] CaptureCore.WhenDefaultFrameInfoInitialized
+[       OK ] CaptureCore.WhenDefaultFrameInfoInitialized
+[ RUN      ] RingBuffer_Queue.WhenPushedAndPoppedSingleThreaded
+[       OK ] RingBuffer_Queue.WhenPushedAndPoppedSingleThreaded
+[ RUN      ] RingBuffer_Queue.WhenBufferReachesCapacity_RejectsSubsequentPush
+[       OK ] RingBuffer_Queue.WhenBufferReachesCapacity_RejectsSubsequentPush
+[ RUN      ] RingBuffer_Queue.WhenConcurrentProducerConsumer_ExpectNoTornOrDroppedItems
+[       OK ] RingBuffer_Queue.WhenConcurrentProducerConsumer_ExpectNoTornOrDroppedItems
+[ RUN      ] CaptureDevice_Video.WhenFrameAllocatedWithNanoseconds
+[       OK ] CaptureDevice_Video.WhenFrameAllocatedWithNanoseconds
+[ RUN      ] CaptureDevice_Audio.WhenAudioBufferDurationCalculatedInNanoseconds
+[       OK ] CaptureDevice_Audio.WhenAudioBufferDurationCalculatedInNanoseconds
+[ RUN      ] CaptureDevice_Vulkan.OnLostContext
+[       OK ] CaptureDevice_Vulkan.OnLostContext
+[ RUN      ] CaptureDevice_Vulkan.WhenInitialized_SelectsDiscreteGpu
+[       OK ] CaptureDevice_Vulkan.WhenInitialized_SelectsDiscreteGpu
+[ RUN      ] CaptureDevice_Vulkan.WhenExclusiveFullscreenToggled
+[       OK ] CaptureDevice_Vulkan.WhenExclusiveFullscreenToggled
+[ RUN      ] CaptureDevice_Vulkan.WhenResourcesAllocated
+[       OK ] CaptureDevice_Vulkan.WhenResourcesAllocated
+[ RUN      ] CaptureDevice_Shader.WhenStagesConfigured
+[       OK ] CaptureDevice_Shader.WhenStagesConfigured
+[ RUN      ] CaptureDevice_Audio.WhenInitialized_BufferIs2To4Frames
+[       OK ] CaptureDevice_Audio.WhenInitialized_BufferIs2To4Frames
+[ RUN      ] CaptureDevice_Audio.WhenAudioCaptured_TimestampsAreInNanoseconds
+[       OK ] CaptureDevice_Audio.WhenAudioCaptured_TimestampsAreInNanoseconds
+[ RUN      ] CaptureDevice_Audio.WhenOverrunOccurs_DropsFramesWithoutCrashing
+[       OK ] CaptureDevice_Audio.WhenOverrunOccurs_DropsFramesWithoutCrashing
+[ RUN      ] CaptureDevice_Audio.WhenRenderQueuePushed
+[       OK ] CaptureDevice_Audio.WhenRenderQueuePushed
+[ RUN      ] CaptureDevice_DXGI.WhenStreamStarted
+[       OK ] CaptureDevice_DXGI.WhenStreamStarted
+[ RUN      ] CaptureDevice_Decoder.WhenPacketDecodedHardwareAccelerated
+[       OK ] CaptureDevice_Decoder.WhenPacketDecodedHardwareAccelerated
+[ RUN      ] CaptureDevice_Sync.WhenAudioVideoTimestampsAligned
+[       OK ] CaptureDevice_Sync.WhenAudioVideoTimestampsAligned
+[ RUN      ] CaptureDevice_Sync.WhenDriftExceedsThreshold_CompensatesWithoutDeadlock
+[       OK ] CaptureDevice_Sync.WhenDriftExceedsThreshold_CompensatesWithoutDeadlock
+[ RUN      ] CaptureUI_Window.WhenCreated_HasValidDimensions
+[       OK ] CaptureUI_Window.WhenCreated_HasValidDimensions
+[ RUN      ] CaptureUI_Window.WhenFullscreenToggled_UpdatesState
+[       OK ] CaptureUI_Window.WhenFullscreenToggled_UpdatesState
+[ RUN      ] CaptureUI_App.WhenInitialized_RunsTelemetryPipeline
+[CapApp] Initializing native window...
+[CapApp] Initializing Vulkan context & GPU device...
+[CapApp] Initializing WASAPI low-latency audio engine (2-4 frames)...
+[CapApp] Opening hardware capture device...
+[CapApp] Engine ready. Launching interactive presentation loop.
+[       OK ] CaptureUI_App.WhenInitialized_RunsTelemetryPipeline
+[ RUN      ] CaptureProfile_Timer.WhenMeasuredHighResolutionLatency
+[       OK ] CaptureProfile_Timer.WhenMeasuredHighResolutionLatency
+[ RUN      ] CaptureProfile_RenderDoc.WhenSectionPushedAndPopped
+[       OK ] CaptureProfile_RenderDoc.WhenSectionPushedAndPopped
+[ RUN      ] CaptureProfile_Benchmark.WhenSimulatedTargetFrames
+[       OK ] CaptureProfile_Benchmark.WhenSimulatedTargetFrames
+[==========] 26 test(s) run.
+[  PASSED  ] 26 test(s).
+<end of output>
+Test time =   0.19 sec
+----------------------------------------------------------
+Test Passed.
+"capapp_unit_tests" end time: Nov 07 23:17 Hora Padrão de Greenwich
+"capapp_unit_tests" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Nov 07 23:17 Hora Padrão de Greenwich

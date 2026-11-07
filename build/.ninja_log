@@ -1,0 +1,21 @@
+# ninja log v7
+36	435	8157966771888207	src/CMakeFiles/capapp_core.dir/version.cpp.obj	51e0f6088cc8ec86
+60	794	8157966772122765	src/CMakeFiles/capapp_core.dir/av_sync_pipeline.cpp.obj	6d4f549fcf37463a
+89	1079	8157966772409778	tests/CMakeFiles/capapp_tests.dir/test_main.cpp.obj	e5a737fcdbb8c04f
+65	1197	8157966772178028	src/CMakeFiles/capapp_core.dir/window.cpp.obj	d46b702772478154
+94	1230	8157966772473468	tests/CMakeFiles/capapp_tests.dir/test_version.cpp.obj	c27fe37e5ecb0495
+43	1315	8157966771957026	src/CMakeFiles/capapp_core.dir/vulkan_context.cpp.obj	fc557d69adcd2023
+125	1567	8157966772769809	tests/CMakeFiles/capapp_tests.dir/test_app.cpp.obj	ead4364d102ae284
+119	1647	8157966772719530	tests/CMakeFiles/capapp_tests.dir/test_capture_sync.cpp.obj	23d0f95b095d722
+55	1711	8157966772069340	src/CMakeFiles/capapp_core.dir/capture_device.cpp.obj	e14683e56b12e277
+113	1723	8157966772662305	tests/CMakeFiles/capapp_tests.dir/test_wasapi_engine.cpp.obj	3586bde531344038
+107	1777	8157966772586877	tests/CMakeFiles/capapp_tests.dir/test_vulkan_context.cpp.obj	48e34195441486ca
+49	1827	8157966772014144	src/CMakeFiles/capapp_core.dir/wasapi_engine.cpp.obj	13bf1de5a25f8b07
+71	2063	8157966772243483	src/CMakeFiles/capapp_core.dir/app.cpp.obj	c9a5114825473ab7
+82	2064	8157966772354358	src/CMakeFiles/capapp.dir/main.cpp.obj	fab03639d4c73b9a
+77	2163	8157966772299081	src/CMakeFiles/capapp_core.dir/benchmark.cpp.obj	b61d2beeb5459381
+2164	2247	8157966793166793	src/capapp_core.lib	53a356994e4f9dd3
+101	2289	8157966772536490	tests/CMakeFiles/capapp_tests.dir/test_ring_buffer.cpp.obj	f25d4dc64523d025
+130	2397	8157966772825942	tests/CMakeFiles/capapp_tests.dir/test_profiler_benchmark.cpp.obj	ab2a3c6543da60f3
+2247	2408	8157966793997061	src/capapp.exe	c87bac44fa00a39b
+2397	2560	8157966795495476	tests/capapp_tests.exe	640d65642b433b87
