@@ -326,6 +326,7 @@ int CapApplication::run() {
                         }
                         avSync_->push_video_frame(frame);
                         captureDev_->release_frame(frame);
+                        ++framesInInterval;
                     }
                 }
             }
@@ -348,7 +349,6 @@ int CapApplication::run() {
 
             render_frame();
             frameCount_++;
-            framesInInterval++;
         }
 
         // FPS calculation every 500ms

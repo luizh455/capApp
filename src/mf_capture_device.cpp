@@ -5,8 +5,6 @@
 
 #include <capapp/capture/mf_capture_device.hpp>
 #include <iostream>
-#include <cstring>
-#include <algorithm>
 
 // ---- Windows / Media Foundation includes (implementation only) ----------------
 #if defined(_WIN32)
@@ -122,6 +120,7 @@ static IMFSourceReader* create_reader_from_symlink(
     DWORD dwTypeIndex = 0;
     IMFMediaType* pNativeType = nullptr;
     UINT32 bestWidth = 0, bestHeight = 0, bestFps = 0;
+    bool bestMatchesTargetSize = false;
 
     while (SUCCEEDED(pReader->GetNativeMediaType(
         static_cast<DWORD>(MF_SOURCE_READER_FIRST_VIDEO_STREAM), dwTypeIndex, &pNativeType))) {
@@ -130,17 +129,30 @@ static IMFSourceReader* create_reader_from_symlink(
         MFGetAttributeRatio(pNativeType, MF_MT_FRAME_RATE, &fpsNum, &fpsDen);
         UINT32 fps = fpsDen > 0 ? (fpsNum / fpsDen) : 30;
 
-        if (w == targetWidth && h == targetHeight && (bestWidth != targetWidth || bestHeight != targetHeight)) {
-            bestWidth = w; bestHeight = h; bestFps = fps;
-        } else if (w * h > bestWidth * bestHeight && bestWidth != targetWidth) {
-            bestWidth = w; bestHeight = h; bestFps = fps;
+        const bool matchesTargetSize = w == targetWidth && h == targetHeight;
+        const bool betterRate = fps == targetFps
+            ? bestFps != targetFps
+            : bestFps != targetFps && fps > bestFps;
+        bool selectType = false;
+        if (matchesTargetSize) {
+            selectType = !bestMatchesTargetSize || betterRate;
+        } else if (!bestMatchesTargetSize) {
+            const uint64_t candidatePixels = static_cast<uint64_t>(w) * h;
+            const uint64_t bestPixels = static_cast<uint64_t>(bestWidth) * bestHeight;
+            selectType = candidatePixels > bestPixels ||
+                (candidatePixels == bestPixels && betterRate);
         }
-        if (w == targetWidth && h == targetHeight && fps == targetFps) {
+
+        if (selectType) {
+            bestWidth = w;
+            bestHeight = h;
             bestFps = fps;
-            pNativeType->Release();
-            break;
+            bestMatchesTargetSize = matchesTargetSize;
         }
         pNativeType->Release();
+        if (bestMatchesTargetSize && bestFps == targetFps) {
+            break;
+        }
         dwTypeIndex++;
     }
 
@@ -171,10 +183,13 @@ static IMFSourceReader* create_reader_from_symlink(
     hr = pReader->GetCurrentMediaType(
             static_cast<DWORD>(MF_SOURCE_READER_FIRST_VIDEO_STREAM), &pActualType);
     if (SUCCEEDED(hr) && pActualType) {
-        UINT32 w = 0, h = 0;
+        UINT32 w = 0, h = 0, fpsNum = 0, fpsDen = 1;
         MFGetAttributeSize(pActualType, MF_MT_FRAME_SIZE, &w, &h);
+        MFGetAttributeRatio(pActualType, MF_MT_FRAME_RATE, &fpsNum, &fpsDen);
+        const UINT32 actualFps = fpsDen > 0 ? (fpsNum / fpsDen) : 0;
         pActualType->Release();
-        std::cout << "[MFCapture] Auto-negotiated stream: " << w << "x" << h << " @" << finalFps << " FPS\n";
+        std::cout << "[MFCapture] Auto-negotiated stream: " << w << "x" << h
+                  << " @" << actualFps << " FPS\n";
     }
 
     return pReader;
@@ -225,9 +240,6 @@ bool MFCaptureDevice::open(const CaptureDeviceConfig& config) {
         frameHeight_ = config_.targetHeight;
     }
 
-    // Pre-allocate staging buffer (BGRA = 4 bytes/pixel)
-    stagingBuffer_.resize(static_cast<size_t>(frameWidth_) * frameHeight_ * 4u, 0);
-
     std::cout << "[MFCapture] Opened camera \"" << config_.deviceName
               << "\" at " << frameWidth_ << "x" << frameHeight_ << "\n";
     open_ = true;
@@ -244,12 +256,18 @@ void MFCaptureDevice::close() noexcept {
     stop_stream();
     open_ = false;
 #if defined(_WIN32)
+    if (pLockedBuffer_) {
+        auto* buffer = static_cast<IMFMediaBuffer*>(pLockedBuffer_);
+        buffer->Unlock();
+        buffer->Release();
+        pLockedBuffer_ = nullptr;
+    }
     if (pReader_) {
         static_cast<IMFSourceReader*>(pReader_)->Release();
         pReader_ = nullptr;
     }
 #endif
-    stagingBuffer_.clear();
+    pLockedBuffer_ = nullptr;
     frameWidth_ = 0;
     frameHeight_ = 0;
 }
@@ -277,6 +295,13 @@ bool MFCaptureDevice::acquire_frame(Frame& outFrame, uint32_t /*timeoutMs*/) {
 
 #if defined(_WIN32)
     if (!pReader_) return false;
+
+    if (pLockedBuffer_) {
+        auto* previousBuffer = static_cast<IMFMediaBuffer*>(pLockedBuffer_);
+        previousBuffer->Unlock();
+        previousBuffer->Release();
+        pLockedBuffer_ = nullptr;
+    }
 
     auto* reader = static_cast<IMFSourceReader*>(pReader_);
 
@@ -322,20 +347,12 @@ bool MFCaptureDevice::acquire_frame(Frame& outFrame, uint32_t /*timeoutMs*/) {
     DWORD curLen = 0;
     hr = pBuffer->Lock(&pData, &maxLen, &curLen);
     if (SUCCEEDED(hr) && pData && curLen > 0) {
-        // Copy into our staging buffer (resize if needed, e.g. on resolution change)
-        size_t needed = static_cast<size_t>(frameWidth_) * frameHeight_ * 4u;
-        if (stagingBuffer_.size() < needed) {
-            stagingBuffer_.resize(needed, 0);
-        }
-        size_t toCopy = std::min(static_cast<size_t>(curLen), stagingBuffer_.size());
-        std::memcpy(stagingBuffer_.data(), pData, toCopy);
-        pBuffer->Unlock();
-
-        // Fill the Frame struct
-        outFrame.data            = stagingBuffer_.data();
+        pLockedBuffer_ = pBuffer;
+        outFrame.data            = pData;
         outFrame.width           = frameWidth_;
         outFrame.height          = frameHeight_;
         outFrame.stride          = frameWidth_ * 4u;
+        outFrame.dataSize        = curLen;
         outFrame.format          = PixelFormat::BGRA8;
         outFrame.timestampNs     = static_cast<TimestampNs>(llTimestamp) * 100ULL; // 100-ns → ns
         outFrame.sequenceNumber  = ++sequenceCounter_;
@@ -351,7 +368,6 @@ bool MFCaptureDevice::acquire_frame(Frame& outFrame, uint32_t /*timeoutMs*/) {
         return false;
     }
 
-    pBuffer->Release();
     pSample->Release();
     return true;
 
@@ -362,8 +378,8 @@ bool MFCaptureDevice::acquire_frame(Frame& outFrame, uint32_t /*timeoutMs*/) {
 }
 
 void MFCaptureDevice::release_frame(Frame& frame) noexcept {
-    // Data already copied to stagingBuffer_; just null the pointer
-    frame.data = nullptr;
+    // Keep the locked buffer valid through rendering; it is released by the next acquire.
+    (void)frame;
 }
 
 CaptureDeviceStats MFCaptureDevice::stats() const noexcept {

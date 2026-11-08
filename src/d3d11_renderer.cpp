@@ -196,15 +196,20 @@ struct D3D11Renderer::Impl {
 
     bool upload_texture(ID3D11Texture2D* texture, const uint8_t* pixels,
                         uint32_t width, uint32_t height, uint32_t sourceStride) {
+        const size_t rowBytes = static_cast<size_t>(width) * 4;
+        if (sourceStride < rowBytes) return false;
+
         D3D11_MAPPED_SUBRESOURCE mapped{};
         if (FAILED(context->Map(texture, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
             return false;
         }
-        const size_t rowBytes = static_cast<size_t>(width) * 4;
-        if (sourceStride < rowBytes) return false;
-        for (uint32_t row = 0; row < height; ++row) {
-            std::memcpy(static_cast<uint8_t*>(mapped.pData) + row * mapped.RowPitch,
-                        pixels + static_cast<size_t>(row) * sourceStride, rowBytes);
+        if (mapped.RowPitch == rowBytes && sourceStride == rowBytes) {
+            std::memcpy(mapped.pData, pixels, rowBytes * height);
+        } else {
+            for (uint32_t row = 0; row < height; ++row) {
+                std::memcpy(static_cast<uint8_t*>(mapped.pData) + row * mapped.RowPitch,
+                            pixels + static_cast<size_t>(row) * sourceStride, rowBytes);
+            }
         }
         context->Unmap(texture, 0);
         return true;
@@ -322,6 +327,11 @@ bool D3D11Renderer::render(const Frame& frame, bool showHud,
             return false;
         }
         const uint32_t stride = frame.stride ? frame.stride : frame.width * 4;
+        if (frame.dataSize > 0 &&
+            static_cast<size_t>(stride) * frame.height > frame.dataSize) {
+            std::cerr << "[D3D11] Capture frame buffer is smaller than its declared dimensions.\n";
+            return false;
+        }
         if (!impl_->upload_texture(impl_->videoTexture.Get(), frame.data, frame.width, frame.height, stride)) {
             return false;
         }

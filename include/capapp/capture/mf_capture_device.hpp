@@ -3,7 +3,6 @@
 #include <capapp/capture/capture_device.hpp>
 #include <memory>
 #include <string>
-#include <vector>
 #include <cstdint>
 
 namespace capapp::capture {
@@ -20,8 +19,8 @@ namespace capapp::capture {
  *   open()         → creates IMFSourceReader, sets output media type to ARGB32
  *   start_stream() → marks streaming_ = true (reader is already in pull mode)
  *   acquire_frame()→ calls ReadSample (synchronous), locks IMFMediaBuffer,
- *                    copies pixels into stagingBuffer_, fills outFrame.data
- *   release_frame()→ no-op (data was already copied to staging buffer)
+ *                    and exposes its pixels directly in outFrame.data
+ *   release_frame()→ leaves the buffer locked until the next acquire_frame()
  *   close()        → releases reader / COM objects
  */
 class MFCaptureDevice final : public ICaptureDevice {
@@ -54,8 +53,8 @@ private:
     uint64_t sequenceCounter_{0};
     CaptureDeviceStats stats_{};
 
-    // Staging buffer for decoded BGRA pixels (owned, lives as long as device is open)
-    std::vector<uint8_t> stagingBuffer_;
+    // Locked until the next acquire, so presentation can upload without a CPU staging copy.
+    void* pLockedBuffer_{nullptr}; // IMFMediaBuffer*
     uint32_t frameWidth_{0};
     uint32_t frameHeight_{0};
 
