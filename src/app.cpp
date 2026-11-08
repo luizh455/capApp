@@ -198,9 +198,13 @@ CapApplication::~CapApplication() {
 }
 
 void CapApplication::queue_capture_reconfiguration(CaptureRequest request) {
+    captureReadWarningActive_.store(false, std::memory_order_release);
+    set_capture_warning({});
+    captureLoading_.store(true, std::memory_order_release);
     {
         std::lock_guard lock(captureRequestMutex_);
         if (stopCaptureReconfiguration_) {
+            captureLoading_.store(false, std::memory_order_release);
             std::cerr << "[CapApp Error] Capture reconfiguration worker is unavailable.\n";
             return;
         }
@@ -251,10 +255,16 @@ void CapApplication::capture_reconfiguration_loop() {
             if (!newDevice->open(request.config) || !newDevice->start_stream()) {
                 std::cerr << "[CapApp Error] Failed to apply capture configuration for "
                           << request.config.deviceName << ".\n";
+                captureReadWarningActive_.store(false, std::memory_order_release);
+                captureLoading_.store(false, std::memory_order_release);
+                set_capture_warning(
+                    "Could not open " + request.config.deviceName +
+                    ". It may be in use by another app; close it there and retry.");
                 newDevice->close();
                 captureDev_ = std::move(newDevice);
             } else {
                 captureDev_ = std::move(newDevice);
+                captureReadWarningActive_.store(false, std::memory_order_release);
                 std::cout << "[CapApp] Capture configuration applied: "
                           << request.config.targetWidth << "x" << request.config.targetHeight
                           << " @" << request.config.targetFps << " FPS\n";
@@ -488,9 +498,11 @@ bool CapApplication::initialize_runtime() {
     capCfg.enableZeroCopy = true;
 
     if (!captureDev_->open(capCfg) || !captureDev_->start_stream()) {
-        // MF device open failed (e.g. no camera permission in sandbox / CI).
-        // Fall back to the stub DesktopCaptureDevice so the rest of the app works.
-        std::cerr << "[CapApp Warning] Real camera open failed — falling back to stub capture device.\n";
+        const std::string warning = "Could not open " + capCfg.deviceName +
+            ". It may be in use by another app; close it there and retry.";
+        std::cerr << "[CapApp Warning] " << warning << "\n";
+        set_capture_warning(warning);
+        captureDev_->close();
         captureDev_ = capture::create_capture_device(L""); // forces DesktopCaptureDevice
         if (!captureDev_->open(capCfg) || !captureDev_->start_stream()) {
             std::cerr << "[CapApp Error] Fallback capture device also failed.\n";
@@ -585,6 +597,16 @@ void CapApplication::draw_startup_splash() {
 
     ReleaseDC(hwnd, windowDc);
 #endif
+}
+
+void CapApplication::set_capture_warning(std::string warning) {
+    std::lock_guard lock(captureWarningMutex_);
+    captureWarning_ = std::move(warning);
+}
+
+std::string CapApplication::capture_warning() const {
+    std::lock_guard lock(captureWarningMutex_);
+    return captureWarning_;
 }
 
 void CapApplication::configure_window_callbacks() {
@@ -1070,6 +1092,7 @@ int CapApplication::run() {
         if (!isPaused_) {
             Frame frame{};
             bool hasFrame = false;
+            std::string captureReadError;
             if (!captureReconfiguring_.load(std::memory_order_acquire)) {
                 std::unique_lock captureLock(captureDeviceMutex_, std::try_to_lock);
                 if (captureLock.owns_lock() &&
@@ -1077,6 +1100,7 @@ int CapApplication::run() {
                     captureStreamInfo_ = captureDev_->stream_info();
                     const auto captureStart = std::chrono::steady_clock::now();
                     hasFrame = captureDev_->acquire_frame(frame);
+                    captureReadError = captureDev_->last_error();
                     captureTimeInIntervalMs += std::chrono::duration<double, std::milli>(
                         std::chrono::steady_clock::now() - captureStart).count();
                     ++captureCallsInInterval;
@@ -1089,6 +1113,20 @@ int CapApplication::run() {
                         captureDev_->release_frame(frame);
                         ++framesInInterval;
                     }
+                }
+            }
+            if (!captureReadError.empty()) {
+                const std::string warning = "Capture failed: " + captureReadError +
+                    ". The device may be in use by another app; close apps using it and retry.";
+                captureLoading_.store(false, std::memory_order_release);
+                if (!captureReadWarningActive_.exchange(true, std::memory_order_acq_rel)) {
+                    std::cerr << "[CapApp Warning] " << warning << "\n";
+                }
+                set_capture_warning(warning);
+            } else if (hasFrame) {
+                captureLoading_.store(false, std::memory_order_release);
+                if (captureReadWarningActive_.exchange(false, std::memory_order_acq_rel)) {
+                    set_capture_warning({});
                 }
             }
             if (!hasFrame) {
@@ -1153,14 +1191,18 @@ void CapApplication::render_frame() {
     int height = clientRect.bottom - clientRect.top;
     if (width <= 0 || height <= 0) return;
 
+    const bool showCaptureWarning = !capture_warning().empty();
+    const bool showCaptureLoading = captureLoading_.load(std::memory_order_acquire);
     std::lock_guard frameLock(lastFrameMutex_);
     if (d3dRenderer_) {
         if (d3dRenderer_->render(
-                lastFrame_, options_.showHud || showNegotiatedInfo_,
+                lastFrame_, options_.showHud || showNegotiatedInfo_ ||
+                    showCaptureWarning || showCaptureLoading,
                 [this](HDC hudDc, int hudWidth, int hudHeight) {
                     render_hud(hudDc, hudWidth, hudHeight);
                 }, scalingMode_ == ui::ScalingMode::Lanczos3,
-                scalingMode_ == ui::ScalingMode::None)) {
+                scalingMode_ == ui::ScalingMode::None,
+                showCaptureLoading)) {
             return;
         }
         std::cerr << "[CapApp Warning] GPU presentation failed; switching to GDI fallback.\n";
@@ -1262,7 +1304,8 @@ void CapApplication::render_frame() {
     // ----------------------------------------------------------------
     // 2. HUD overlay (always on top of frame)
     // ----------------------------------------------------------------
-    if (options_.showHud || showNegotiatedInfo_) {
+    if (options_.showHud || showNegotiatedInfo_ ||
+        showCaptureWarning || showCaptureLoading) {
         render_hud(memDC_, width, height);
     }
 
@@ -1276,12 +1319,88 @@ void CapApplication::render_frame() {
 
 void CapApplication::render_hud(HDC hdc, int width, int height) {
 #if defined(_WIN32)
-    (void)width;
-    (void)height;
-
     SetBkMode(hdc, TRANSPARENT);
+    if (captureLoading_.load(std::memory_order_acquire)) {
+        const int panelWidth = std::min(520, width - 32);
+        const int panelHeight = 150;
+        if (panelWidth > 0 && height >= panelHeight + 32) {
+            const int left = (width - panelWidth) / 2;
+            const int top = (height - panelHeight) / 2;
+            RECT panel{left, top, left + panelWidth, top + panelHeight};
+            HBRUSH panelBrush = CreateSolidBrush(RGB(14, 21, 34));
+            HPEN panelPen = CreatePen(PS_SOLID, 2, RGB(63, 157, 205));
+            HBRUSH previousBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, panelBrush));
+            HPEN previousPen = reinterpret_cast<HPEN>(SelectObject(hdc, panelPen));
+            RoundRect(hdc, panel.left, panel.top, panel.right, panel.bottom, 20, 20);
+            SelectObject(hdc, previousBrush);
+            SelectObject(hdc, previousPen);
+            DeleteObject(panelBrush);
+            DeleteObject(panelPen);
+
+            const int centerX = left + panelWidth / 2;
+            const int centerY = top + 43;
+            const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+            const int leadingDot = static_cast<int>((elapsedMs / 80) % 12);
+            constexpr double pi = 3.14159265358979323846;
+            for (int dot = 0; dot < 12; ++dot) {
+                const double angle = (static_cast<double>(dot) * 30.0 - 90.0) * pi / 180.0;
+                const int dotX = centerX + static_cast<int>(std::lround(std::cos(angle) * 19.0));
+                const int dotY = centerY + static_cast<int>(std::lround(std::sin(angle) * 19.0));
+                const int distance = (dot - leadingDot + 12) % 12;
+                const int brightness = 75 + (11 - distance) * 15;
+                HBRUSH dotBrush = CreateSolidBrush(RGB(45, brightness, 210));
+                HBRUSH previousDotBrush = reinterpret_cast<HBRUSH>(
+                    SelectObject(hdc, dotBrush));
+                Ellipse(hdc, dotX - 3, dotY - 3, dotX + 3, dotY + 3);
+                SelectObject(hdc, previousDotBrush);
+                DeleteObject(dotBrush);
+            }
+
+            SetTextColor(hdc, RGB(239, 246, 255));
+            RECT title{left + 20, top + 66, left + panelWidth - 20, top + 95};
+            DrawTextW(hdc, L"Switching capture device", -1, &title,
+                      DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            SetTextColor(hdc, RGB(166, 184, 209));
+            RECT detail{left + 20, top + 100, left + panelWidth - 20, top + 128};
+            DrawTextW(hdc, L"Waiting for the new input to start...", -1, &detail,
+                      DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        }
+        return;
+    }
+
+    const auto drawCaptureWarning = [&]() {
+        const std::string warning = capture_warning();
+        if (warning.empty() || width <= 32 || height <= 32) return;
+
+        const int bannerTop = std::max(16, height - 90);
+        RECT banner{16, bannerTop, width - 16, height - 16};
+        HBRUSH bannerBrush = CreateSolidBrush(RGB(54, 35, 29));
+        HPEN bannerPen = CreatePen(PS_SOLID, 1, RGB(210, 117, 70));
+        HBRUSH previousBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, bannerBrush));
+        HPEN previousPen = reinterpret_cast<HPEN>(SelectObject(hdc, bannerPen));
+        RoundRect(hdc, banner.left, banner.top, banner.right, banner.bottom, 14, 14);
+        SelectObject(hdc, previousBrush);
+        SelectObject(hdc, previousPen);
+        DeleteObject(bannerBrush);
+        DeleteObject(bannerPen);
+
+        SetTextColor(hdc, RGB(255, 190, 139));
+        TextOutW(hdc, banner.left + 18, banner.top + 10,
+                 L"CAPTURE DEVICE WARNING", 22);
+        const std::wstring warningText(warning.begin(), warning.end());
+        RECT message{banner.left + 18, banner.top + 34,
+                     banner.right - 14, banner.bottom - 6};
+        SetTextColor(hdc, RGB(255, 231, 211));
+        DrawTextW(hdc, warningText.c_str(), -1, &message,
+                  DT_LEFT | DT_TOP | DT_WORDBREAK | DT_END_ELLIPSIS);
+    };
+
     if (!options_.showHud) {
-        if (!showNegotiatedInfo_) return;
+        if (!showNegotiatedInfo_) {
+            drawCaptureWarning();
+            return;
+        }
         RECT monitorPanel{16, 16, 584, 184};
         HBRUSH monitorBrush = CreateSolidBrush(RGB(18, 25, 39));
         HPEN monitorPen = CreatePen(PS_SOLID, 1, RGB(47, 64, 91));
@@ -1305,6 +1424,7 @@ void CapApplication::render_hud(HDC hdc, int width, int height) {
                  static_cast<int>(wcslen(monitorControls)));
         SelectObject(hdc, oldMonitorFont);
         DeleteObject(monitorFont);
+        drawCaptureWarning();
         return;
     }
 
@@ -1506,6 +1626,7 @@ void CapApplication::render_hud(HDC hdc, int width, int height) {
     DeleteObject(subFont);
     DeleteObject(bodyFont);
     DeleteObject(titleFont);
+    drawCaptureWarning();
 #endif
 }
 

@@ -68,6 +68,7 @@ public:
 
     virtual CaptureDeviceStats stats() const noexcept = 0;
     virtual CaptureStreamInfo stream_info() const { return {}; }
+    virtual std::string last_error() const { return {}; }
 };
 
 } // namespace capapp::capture

@@ -35,7 +35,8 @@ public:
     bool initialize(HWND window);
     bool render(const Frame& frame, bool showHud,
                 const std::function<void(HDC, int, int)>& drawHud,
-                bool useLanczos = false, bool noScaling = false);
+                bool useLanczos = false, bool noScaling = false,
+                bool fullScreenHud = false);
 #endif
 
 private:

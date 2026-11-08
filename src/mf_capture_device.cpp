@@ -7,6 +7,7 @@
 #include <iostream>
 #include <algorithm>
 #include <cctype>
+#include <sstream>
 #include <vector>
 
 // ---- Windows / Media Foundation includes (implementation only) ----------------
@@ -542,6 +543,7 @@ bool MFCaptureDevice::open(const CaptureDeviceConfig& config) {
     stats_ = {};
     streamInfo_ = {};
     sequenceCounter_ = 0;
+    lastError_.clear();
 
 #if defined(_WIN32)
     ensure_mf_startup();
@@ -642,12 +644,32 @@ bool MFCaptureDevice::acquire_frame(Frame& outFrame, uint32_t /*timeoutMs*/) {
             &pSample);
 
     if (FAILED(hr)) {
-        std::cerr << "[MFCapture] ReadSample failed: 0x" << std::hex << hr << "\n";
+        std::ostringstream error;
+        if (hr == MF_E_HW_MFT_FAILED_START_STREAMING) {
+            error << "Media Foundation could not start the capture hardware transform";
+        } else {
+            error << "Media Foundation could not read a capture frame";
+        }
+        error << " (HRESULT 0x" << std::hex << std::uppercase
+              << static_cast<uint32_t>(hr) << ")";
+        const std::string message = error.str();
+        if (lastError_ != message) {
+            std::cerr << "[MFCapture] " << message << "\n";
+        }
+        lastError_ = message;
         return false;
     }
 
     // Stream changed / end-of-stream: skip this sample
     if (flags & (MF_SOURCE_READERF_ENDOFSTREAM | MF_SOURCE_READERF_ERROR)) {
+        if (flags & MF_SOURCE_READERF_ERROR) {
+            const std::string message =
+                "Media Foundation reported an error in the capture stream";
+            if (lastError_ != message) {
+                std::cerr << "[MFCapture] " << message << "\n";
+            }
+            lastError_ = message;
+        }
         if (pSample) pSample->Release();
         return false;
     }
@@ -656,6 +678,7 @@ bool MFCaptureDevice::acquire_frame(Frame& outFrame, uint32_t /*timeoutMs*/) {
         // Can happen on format-change events; not an error
         return false;
     }
+    lastError_.clear();
 
     // ---- Get the contiguous buffer from the sample ----
     IMFMediaBuffer* pBuffer = nullptr;
@@ -721,6 +744,10 @@ CaptureDeviceStats MFCaptureDevice::stats() const noexcept {
 
 CaptureStreamInfo MFCaptureDevice::stream_info() const {
     return streamInfo_;
+}
+
+std::string MFCaptureDevice::last_error() const {
+    return lastError_;
 }
 
 } // namespace capapp::capture

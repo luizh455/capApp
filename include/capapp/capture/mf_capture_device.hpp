@@ -45,6 +45,7 @@ public:
 
     CaptureDeviceStats stats() const noexcept override;
     CaptureStreamInfo stream_info() const override;
+    std::string last_error() const override;
 
 private:
     std::wstring symbolicLink_;
@@ -54,6 +55,7 @@ private:
     uint64_t sequenceCounter_{0};
     CaptureDeviceStats stats_{};
     CaptureStreamInfo streamInfo_{};
+    std::string lastError_;
 
     // Locked until the next acquire, so presentation can upload without a CPU staging copy.
     void* pLockedBuffer_{nullptr}; // IMFMediaBuffer*

@@ -69,6 +69,8 @@ private:
     bool initialize_runtime();
     void configure_window_callbacks();
     void draw_startup_splash();
+    void set_capture_warning(std::string warning);
+    [[nodiscard]] std::string capture_warning() const;
     void queue_capture_reconfiguration(CaptureRequest request);
     void capture_reconfiguration_loop();
     void stop_capture_reconfiguration_worker() noexcept;
@@ -89,6 +91,7 @@ private:
     std::unique_ptr<sync::AVSyncPipeline> avSync_;
     std::mutex captureDeviceMutex_;
     std::mutex lastFrameMutex_;
+    mutable std::mutex captureWarningMutex_;
     std::mutex captureRequestMutex_;
     std::condition_variable captureRequestCv_;
     std::optional<CaptureRequest> pendingCaptureRequest_;
@@ -97,7 +100,10 @@ private:
     std::atomic<bool> captureReconfiguring_{false};
     std::atomic<bool> startupComplete_{false};
     std::atomic<bool> startupSucceeded_{false};
+    std::atomic<bool> captureReadWarningActive_{false};
+    std::atomic<bool> captureLoading_{false};
     bool stopCaptureReconfiguration_{false};
+    std::string captureWarning_;
 
     ui::ScalingMode scalingMode_{ui::ScalingMode::Lanczos3};
     capture::CaptureCompression captureCompression_{capture::CaptureCompression::Auto};

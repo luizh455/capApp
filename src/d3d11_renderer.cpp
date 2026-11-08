@@ -453,7 +453,7 @@ bool D3D11Renderer::initialize(HWND window) {
 
 bool D3D11Renderer::render(const Frame& frame, bool showHud,
                            const std::function<void(HDC, int, int)>& drawHud,
-                           bool useLanczos, bool noScaling) {
+                           bool useLanczos, bool noScaling, bool fullScreenHud) {
     if (!impl_->device || !impl_->window) return false;
     RECT rect{};
     GetClientRect(impl_->window, &rect);
@@ -488,20 +488,22 @@ bool D3D11Renderer::render(const Frame& frame, bool showHud,
     }
 
     if (showHud) {
-        if ((kHudSurfaceWidth != impl_->hudWidth || kHudSurfaceHeight != impl_->hudHeight) &&
-            !impl_->create_hud_resources(kHudSurfaceWidth, kHudSurfaceHeight)) {
+        const uint32_t hudSurfaceWidth = fullScreenHud ? width : kHudSurfaceWidth;
+        const uint32_t hudSurfaceHeight = fullScreenHud ? height : kHudSurfaceHeight;
+        if ((hudSurfaceWidth != impl_->hudWidth || hudSurfaceHeight != impl_->hudHeight) &&
+            !impl_->create_hud_resources(hudSurfaceWidth, hudSurfaceHeight)) {
             std::cerr << "[D3D11] Failed to create HUD drawing surface.\n";
             return false;
         }
         std::memset(impl_->hudPixels, 0,
-                    static_cast<size_t>(kHudSurfaceWidth) * kHudSurfaceHeight * 4);
+                    static_cast<size_t>(hudSurfaceWidth) * hudSurfaceHeight * 4);
         if (drawHud) {
-            drawHud(impl_->hudDc, static_cast<int>(kHudSurfaceWidth),
-                    static_cast<int>(kHudSurfaceHeight));
+            drawHud(impl_->hudDc, static_cast<int>(hudSurfaceWidth),
+                    static_cast<int>(hudSurfaceHeight));
         }
         if (!impl_->upload_texture(impl_->hudTexture.Get(), impl_->hudPixels,
-                                   kHudSurfaceWidth, kHudSurfaceHeight,
-                                   kHudSurfaceWidth * 4)) {
+                                   hudSurfaceWidth, hudSurfaceHeight,
+                                   hudSurfaceWidth * 4)) {
             return false;
         }
     }
@@ -585,8 +587,10 @@ bool D3D11Renderer::render(const Frame& frame, bool showHud,
     if (showHud && impl_->hudView) {
         impl_->context->PSSetSamplers(0, 1, impl_->sampler.GetAddressOf());
         D3D11_VIEWPORT hudViewport{};
-        hudViewport.Width = static_cast<float>(std::min(width, kHudSurfaceWidth));
-        hudViewport.Height = static_cast<float>(std::min(height, kHudSurfaceHeight));
+        hudViewport.Width = static_cast<float>(
+            std::min(width, fullScreenHud ? width : kHudSurfaceWidth));
+        hudViewport.Height = static_cast<float>(
+            std::min(height, fullScreenHud ? height : kHudSurfaceHeight));
         hudViewport.MaxDepth = 1.0f;
         impl_->context->RSSetViewports(1, &hudViewport);
         impl_->context->PSSetShader(impl_->hudPixelShader.Get(), nullptr, 0);
