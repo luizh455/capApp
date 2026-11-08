@@ -250,6 +250,9 @@ int CapApplication::run() {
 
             if (hasFrame) {
                 captureDev_->release_frame(frame);
+            } else {
+                // Avoid a busy loop if the capture source temporarily has no frame.
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
         }
 
@@ -262,8 +265,9 @@ int CapApplication::run() {
             lastFrameTime = now;
         }
 
-        // Cap to ~60 FPS
-        std::this_thread::sleep_for(std::chrono::milliseconds(15));
+        if (isPaused_) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(15));
+        }
     }
 
     std::cout << "[CapApp] Shutting down application...\n";
