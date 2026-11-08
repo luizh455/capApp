@@ -6,9 +6,13 @@ CapApp previews live video in a resizable or fullscreen window, with capture con
 
 ## Screenshots
 
-![CapApp home menu with live capture and negotiated metrics](docs/screenshots/capapp-monitoring.png)
+![CapApp capturing gameplay from a Nintendo Switch, with the home menu and live statistics visible](docs/screenshots/capapp-monitoring.png)
 
-![CapApp home menu with the video input options panel open](docs/screenshots/capapp-options.png)
+*CapApp running with a Nintendo Switch connected, showing the home menu and live capture statistics.*
+
+![CapApp capturing gameplay from a Nintendo Switch, with the submenu selection panel open](docs/screenshots/capapp-options.png)
+
+*The same capture view, demonstrating the available submenu options.*
 
 ## Features
 
