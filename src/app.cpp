@@ -743,7 +743,7 @@ std::vector<std::wstring> CapApplication::home_option_choices(int option) const 
             choices = {L"Unmuted", L"Muted"};
             break;
         case 10:
-            choices = {L"Windowed", L"Fullscreen"};
+            choices = {L"Windowed", L"Fullscreen", L"Native size (fit screen)"};
             break;
     }
     return choices;
@@ -883,7 +883,29 @@ void CapApplication::apply_option_choice(int option, size_t choice) {
             audioEngine_->set_muted(choice == 1);
             break;
         case 10:
-            if ((choice == 1) != window_->is_fullscreen()) window_->toggle_fullscreen();
+            if (choice == 2) {
+                uint32_t frameWidth = 0;
+                uint32_t frameHeight = 0;
+                {
+                    std::lock_guard frameLock(lastFrameMutex_);
+                    frameWidth = lastFrame_.width;
+                    frameHeight = lastFrame_.height;
+                }
+                if (frameWidth == 0 || frameHeight == 0) {
+                    std::cerr << "[CapApp Warning] Cannot resize to native capture size before a frame is available.\n";
+                    break;
+                }
+                if (window_->is_fullscreen()) window_->toggle_fullscreen();
+                if (!window_->resize_to_client_size(frameWidth, frameHeight)) {
+                    std::cerr << "[CapApp Error] Could not resize the window to the native capture size.\n";
+                } else {
+                    std::cout << "[CapApp] Window resized to "
+                              << window_->width() << "x" << window_->height()
+                              << " client pixels.\n";
+                }
+            } else if ((choice == 1) != window_->is_fullscreen()) {
+                window_->toggle_fullscreen();
+            }
             break;
     }
     save_settings();

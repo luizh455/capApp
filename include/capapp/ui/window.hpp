@@ -37,6 +37,7 @@ public:
 
     void toggle_fullscreen();
     [[nodiscard]] bool is_fullscreen() const noexcept;
+    bool resize_to_client_size(uint32_t width, uint32_t height);
 
     [[nodiscard]] uint32_t width() const noexcept;
     [[nodiscard]] uint32_t height() const noexcept;

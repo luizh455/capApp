@@ -1,4 +1,5 @@
 #include <capapp/ui/window.hpp>
+#include <algorithm>
 #include <iostream>
 
 namespace capapp::ui {
@@ -188,6 +189,53 @@ void NativeWindow::toggle_fullscreen() {
 
 bool NativeWindow::is_fullscreen() const noexcept {
     return isFullscreen_;
+}
+
+bool NativeWindow::resize_to_client_size(uint32_t width, uint32_t height) {
+#if defined(_WIN32)
+    if (!hwnd_ || isFullscreen_ || width == 0 || height == 0) return false;
+    if (IsZoomed(hwnd_)) ShowWindow(hwnd_, SW_RESTORE);
+
+    MONITORINFO monitorInfo{sizeof(MONITORINFO)};
+    const HMONITOR monitor = MonitorFromWindow(hwnd_, MONITOR_DEFAULTTONEAREST);
+    if (!GetMonitorInfoW(monitor, &monitorInfo)) return false;
+
+    const DWORD style = static_cast<DWORD>(GetWindowLongPtrW(hwnd_, GWL_STYLE));
+    const DWORD extendedStyle = static_cast<DWORD>(GetWindowLongPtrW(hwnd_, GWL_EXSTYLE));
+    RECT frameInsets{0, 0, 0, 0};
+    if (!AdjustWindowRectEx(&frameInsets, style, FALSE, extendedStyle)) return false;
+    const int horizontalInsets = frameInsets.right - frameInsets.left;
+    const int verticalInsets = frameInsets.bottom - frameInsets.top;
+    const int availableWidth =
+        monitorInfo.rcWork.right - monitorInfo.rcWork.left - horizontalInsets;
+    const int availableHeight =
+        monitorInfo.rcWork.bottom - monitorInfo.rcWork.top - verticalInsets;
+    if (availableWidth <= 0 || availableHeight <= 0) return false;
+
+    const double scale = std::min({
+        1.0,
+        static_cast<double>(availableWidth) / width,
+        static_cast<double>(availableHeight) / height
+    });
+    const int clientWidth = std::max(1, static_cast<int>(width * scale));
+    const int clientHeight = std::max(1, static_cast<int>(height * scale));
+
+    RECT windowRect{0, 0, clientWidth, clientHeight};
+    if (!AdjustWindowRectEx(&windowRect, style, FALSE, extendedStyle)) return false;
+    const int windowWidth = windowRect.right - windowRect.left;
+    const int windowHeight = windowRect.bottom - windowRect.top;
+    const int x = monitorInfo.rcWork.left +
+        ((monitorInfo.rcWork.right - monitorInfo.rcWork.left) - windowWidth) / 2;
+    const int y = monitorInfo.rcWork.top +
+        ((monitorInfo.rcWork.bottom - monitorInfo.rcWork.top) - windowHeight) / 2;
+
+    return SetWindowPos(hwnd_, nullptr, x, y, windowWidth, windowHeight,
+        SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_FRAMECHANGED) != FALSE;
+#else
+    (void)width;
+    (void)height;
+    return false;
+#endif
 }
 
 uint32_t NativeWindow::width() const noexcept {
