@@ -47,6 +47,7 @@ public:
 
     // Event callbacks
     std::function<void(uint32_t key)> onKeyPress;
+    std::function<void(int32_t x, int32_t y)> onMouseClick;
     std::function<void(uint32_t width, uint32_t height)> onResize;
     std::function<void()> onPaint;
 

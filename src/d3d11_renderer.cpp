@@ -16,8 +16,8 @@ namespace {
 
 using Microsoft::WRL::ComPtr;
 
-constexpr uint32_t kHudSurfaceWidth = 600;
-constexpr uint32_t kHudSurfaceHeight = 560;
+constexpr uint32_t kHudSurfaceWidth = 960;
+constexpr uint32_t kHudSurfaceHeight = 680;
 constexpr size_t kVideoTextureCount = 3;
 
 constexpr char kVertexShader[] = R"(

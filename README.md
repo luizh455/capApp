@@ -10,7 +10,7 @@ CapApp opens a video capture device, displays its feed in a resizable window or 
 - Preserves the source aspect ratio while resizing, filling unused space with black bars.
 - Lets you switch capture format, resolution, frame-rate target, and scaling filter while running.
 - Offers Lanczos-3 and smooth mipmap scaling options.
-- Displays live FPS, frame timing, negotiated source/output format, and USB link information.
+- Displays selected settings separately from the negotiated source mode and live running output, FPS, timing, and USB link information (`Tab`).
 - Reports nominal YUY2 input bandwidth when available. MJPEG’s compressed bitrate is shown as unavailable because the current Media Foundation path exposes decoded frames.
 - Supports windowed and fullscreen viewing, plus frame snapshots.
 
@@ -71,6 +71,8 @@ build\src\capapp.exe --device 1 --resolution 1080p --fps 60
 
 ### Keyboard controls
 
+The live preview opens with a controller-friendly home panel. Click a setting or focus it with Up/Down, then press Right/Enter to open its options in the side panel. Use Up/Down to browse choices, Enter to select, and Left to return.
+
 | Key | Action |
 | --- | --- |
 | `C` | Cycle capture devices |
@@ -81,9 +83,12 @@ build\src\capapp.exe --device 1 --resolution 1080p --fps 60
 | `F` | Cycle post-processing effects |
 | `S` | Save a frame snapshot |
 | `F11` | Toggle fullscreen/windowed mode |
-| `Tab` | Toggle the telemetry HUD |
+| `I` | Cycle audio input |
+| `+` / `-` | Adjust audio monitor volume |
+| `M` | Mute/unmute audio |
+| `Esc` | Toggle the settings menu open/closed |
+| `Tab` | Show/hide negotiated and live running details; shown alone when the menu is closed |
 | `Space` | Pause/resume preview |
-| `Esc` | Exit |
 
 ## Tests
 

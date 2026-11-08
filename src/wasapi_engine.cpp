@@ -781,7 +781,7 @@ bool WasapiAudioEngine::select_input_device_id(const std::wstring& id) {
     return !wasRunning || start();
 }
 
-bool WasapiAudioEngine::cycle_input_device() {
+bool WasapiAudioEngine::cycle_input_device(int direction) {
     AudioInputDevice next;
     {
         std::lock_guard lock(impl_->devicesMutex);
@@ -791,10 +791,14 @@ bool WasapiAudioEngine::cycle_input_device() {
             [this](const AudioInputDevice& device) {
                 return device.id == impl_->selectedDeviceId;
             });
+        const size_t count = impl_->inputDevices.size();
         const size_t currentIndex = current == impl_->inputDevices.end()
-            ? impl_->inputDevices.size() - 1
+            ? (direction < 0 ? 0 : count - 1)
             : static_cast<size_t>(current - impl_->inputDevices.begin());
-        next = impl_->inputDevices[(currentIndex + 1) % impl_->inputDevices.size()];
+        const size_t nextIndex = direction < 0
+            ? (currentIndex + count - 1) % count
+            : (currentIndex + 1) % count;
+        next = impl_->inputDevices[nextIndex];
     }
 
     const bool wasRunning = impl_->running.load(std::memory_order_acquire);

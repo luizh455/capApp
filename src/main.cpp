@@ -87,10 +87,11 @@ int main(int argc, char* argv[]) {
             std::cout << "  F     - Cycle Post-Processing Shader FX (Scanlines, Sharpen, Contrast)\n";
             std::cout << "  S     - Take High-Res Frame Snapshot\n";
             std::cout << "  I     - Cycle Audio Input | +/- - Volume | M - Mute\n";
+            std::cout << "  Up/Down - Select home setting | Left/Right/Enter - Change it | Click a setting to cycle\n";
             std::cout << "  F11   - Toggle Exclusive Fullscreen / Windowed\n";
-            std::cout << "  Tab   - Toggle OSD Telemetry HUD\n";
+            std::cout << "  Esc   - Toggle the settings menu open/closed\n";
+            std::cout << "  Tab   - Show/hide negotiated and running capture details\n";
             std::cout << "  Space - Pause / Resume Streaming\n";
-            std::cout << "  Esc   - Exit Application\n";
             std::cout << "Settings are saved automatically and restored on the next launch.\n";
             return 0;
         }

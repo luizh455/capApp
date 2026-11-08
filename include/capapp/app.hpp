@@ -16,6 +16,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace capapp {
 
@@ -54,8 +55,9 @@ public:
     void cycle_fps() noexcept;
     void cycle_filter() noexcept;
     void toggle_scaling_filter() noexcept;
-    void cycle_capture_compression() noexcept;
+    void cycle_capture_compression(int direction = 1) noexcept;
     void take_snapshot() noexcept;
+    void select_home_option(int option) noexcept;
 
 private:
     struct CaptureRequest {
@@ -65,10 +67,15 @@ private:
 
     void render_frame();
     void render_hud(HDC hdc, int width, int height);
+    void render_monitoring_info(HDC hdc, int top);
     void queue_capture_reconfiguration(CaptureRequest request);
     void capture_reconfiguration_loop();
     void stop_capture_reconfiguration_worker() noexcept;
     void save_settings() const noexcept;
+    [[nodiscard]] std::vector<std::wstring> home_option_choices(int option) const;
+    [[nodiscard]] int current_option_choice(int option) const;
+    void open_option_panel();
+    void apply_option_choice(int option, size_t choice);
 
     AppOptions options_;
     std::unique_ptr<ui::NativeWindow> window_;
@@ -92,6 +99,10 @@ private:
     bool useLanczosScaling_{true};
     capture::CaptureCompression captureCompression_{capture::CaptureCompression::Auto};
     bool isPaused_{false};
+    int selectedHomeOption_{0};
+    int selectedOptionChoice_{0};
+    bool optionPanelOpen_{false};
+    bool showNegotiatedInfo_{false};
     uint64_t frameCount_{0};
     double currentFps_{60.0};
     double captureAcquireMs_{0.0};

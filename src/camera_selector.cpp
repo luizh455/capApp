@@ -270,9 +270,12 @@ const CameraDeviceInfo& CameraSelector::cycle_prev_device() {
     return devices_[activeIndex_];
 }
 
-ResolutionPreset CameraSelector::cycle_resolution() noexcept {
+ResolutionPreset CameraSelector::cycle_resolution(int direction) noexcept {
     if (resolutionPresets_.empty()) return {};
-    activeResIndex_ = (activeResIndex_ + 1) % resolutionPresets_.size();
+    const size_t count = resolutionPresets_.size();
+    activeResIndex_ = direction < 0
+        ? static_cast<uint32_t>((activeResIndex_ + count - 1) % count)
+        : static_cast<uint32_t>((activeResIndex_ + 1) % count);
     auto res = resolutionPresets_[activeResIndex_];
     if (activeIndex_ < devices_.size()) {
         devices_[activeIndex_].width = res.width;
@@ -284,7 +287,8 @@ ResolutionPreset CameraSelector::cycle_resolution() noexcept {
     return res;
 }
 
-uint32_t CameraSelector::cycle_fps() noexcept {
+uint32_t CameraSelector::cycle_fps(int direction) noexcept {
+    (void)direction;
     activeFps_ = (activeFps_ == 60) ? 30 : 60;
     if (activeIndex_ < devices_.size()) {
         devices_[activeIndex_].maxFps = activeFps_;

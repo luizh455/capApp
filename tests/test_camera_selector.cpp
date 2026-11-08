@@ -109,4 +109,8 @@ TEST(CaptureDevice_Camera, WhenResolutionAndFpsCycled) {
 
     EXPECT_TRUE(selector.set_resolution(1920, 1080));
     EXPECT_EQ(selector.active_resolution().width, 1920u);
+
+    auto previousResolution = selector.cycle_resolution(-1);
+    EXPECT_EQ(previousResolution.width, 3840u);
+    EXPECT_EQ(previousResolution.height, 2160u);
 }

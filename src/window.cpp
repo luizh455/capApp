@@ -14,12 +14,18 @@ LRESULT CALLBACK NativeWindow::window_proc(HWND hwnd, UINT uMsg, WPARAM wParam, 
             if (self) {
                 if (wParam == VK_F11) {
                     self->toggle_fullscreen();
-                } else if (wParam == VK_ESCAPE) {
-                    self->request_close();
                 }
                 if (self->onKeyPress) {
                     self->onKeyPress(static_cast<uint32_t>(wParam));
                 }
+            }
+            return 0;
+
+        case WM_LBUTTONDOWN:
+            if (self && self->onMouseClick) {
+                self->onMouseClick(
+                    static_cast<int16_t>(LOWORD(lParam)),
+                    static_cast<int16_t>(HIWORD(lParam)));
             }
             return 0;
 

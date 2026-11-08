@@ -13,6 +13,7 @@
 #include <map>
 #include <system_error>
 #include <cmath>
+#include <array>
 
 #if defined(_WIN32)
 #include <objbase.h>
@@ -476,8 +477,44 @@ bool CapApplication::initialize() {
         render_frame();
     };
     window_->onKeyPress = [this](uint32_t key) {
-        if (key == VK_TAB) {
+        if (key == VK_ESCAPE) {
             toggle_hud();
+            if (!options_.showHud) {
+                optionPanelOpen_ = false;
+            }
+        } else if (key == VK_TAB) {
+            showNegotiatedInfo_ = !showNegotiatedInfo_;
+        } else if (key == VK_UP) {
+            if (optionPanelOpen_) {
+                const auto choices = home_option_choices(selectedHomeOption_);
+                if (!choices.empty()) {
+                    selectedOptionChoice_ = (selectedOptionChoice_ +
+                        static_cast<int>(choices.size()) - 1) % static_cast<int>(choices.size());
+                }
+            } else {
+                select_home_option(selectedHomeOption_ - 1);
+            }
+        } else if (key == VK_DOWN) {
+            if (optionPanelOpen_) {
+                const auto choices = home_option_choices(selectedHomeOption_);
+                if (!choices.empty()) {
+                    selectedOptionChoice_ = (selectedOptionChoice_ + 1) %
+                        static_cast<int>(choices.size());
+                }
+            } else {
+                select_home_option(selectedHomeOption_ + 1);
+            }
+        } else if (key == VK_LEFT) {
+            if (optionPanelOpen_) optionPanelOpen_ = false;
+            else select_home_option(selectedHomeOption_ - 1);
+        } else if (key == VK_RIGHT || key == VK_RETURN) {
+            if (optionPanelOpen_) {
+                apply_option_choice(selectedHomeOption_,
+                                    static_cast<size_t>(selectedOptionChoice_));
+                optionPanelOpen_ = false;
+            } else {
+                open_option_panel();
+            }
         } else if (key == VK_SPACE) {
             toggle_pause();
         } else if (key == 'C' || key == 'c') {
@@ -509,6 +546,34 @@ bool CapApplication::initialize() {
             }
         }
         save_settings();
+    };
+    window_->onMouseClick = [this](int32_t x, int32_t y) {
+        constexpr int rowTop = 100;
+        constexpr int rowHeight = 40;
+        constexpr int optionCount = 10;
+        if (!options_.showHud) return;
+        if (optionPanelOpen_ && x >= 604 && x <= 932 && y >= 100) {
+            constexpr int choiceTop = 106;
+            constexpr int choiceHeight = 38;
+            const int visibleRow = (y - choiceTop) / choiceHeight;
+            const auto choices = home_option_choices(selectedHomeOption_);
+            const int start = std::max(0, std::min(
+                selectedOptionChoice_ - 5,
+                static_cast<int>(choices.size()) - 10));
+            const int choice = start + visibleRow;
+            if (y >= choiceTop && choice >= 0 &&
+                choice < static_cast<int>(choices.size())) {
+                selectedOptionChoice_ = choice;
+                apply_option_choice(selectedHomeOption_, static_cast<size_t>(choice));
+                optionPanelOpen_ = false;
+                save_settings();
+            }
+        } else if (x >= 24 && x <= 576 && y >= rowTop &&
+                   y < rowTop + rowHeight * optionCount) {
+            const int option = (y - rowTop) / rowHeight;
+            select_home_option(option);
+            open_option_panel();
+        }
     };
 
     lastFpsUpdateNs_ = audio::WasapiAudioEngine::query_system_clock_ns();
@@ -556,7 +621,7 @@ void CapApplication::toggle_scaling_filter() noexcept {
               << (useLanczosScaling_ ? "Lanczos-3" : "Smooth mipmap") << "\n";
 }
 
-void CapApplication::cycle_capture_compression() noexcept {
+void CapApplication::cycle_capture_compression(int direction) noexcept {
     const auto* device = cameraSelector_ ? cameraSelector_->active_device() : nullptr;
     if (!device || device->supportedCompressions.empty()) {
         std::cerr << "[CapApp Warning] No capture compression modes are available.\n";
@@ -565,9 +630,12 @@ void CapApplication::cycle_capture_compression() noexcept {
 
     const auto& modes = device->supportedCompressions;
     const auto current = std::find(modes.begin(), modes.end(), captureCompression_);
-    const size_t nextIndex = current == modes.end()
-        ? 0
-        : (static_cast<size_t>(current - modes.begin()) + 1) % modes.size();
+    const size_t currentIndex = current == modes.end()
+        ? (direction < 0 ? 0 : modes.size() - 1)
+        : static_cast<size_t>(current - modes.begin());
+    const size_t nextIndex = direction < 0
+        ? (currentIndex + modes.size() - 1) % modes.size()
+        : (currentIndex + 1) % modes.size();
     captureCompression_ = modes[nextIndex];
 
     const auto resolution = cameraSelector_->active_resolution();
@@ -590,6 +658,206 @@ void CapApplication::take_snapshot() noexcept {
         frameRecorder_->capture_snapshot(lastFrame_);
         std::cout << "[CapApp] Captured snapshot frame " << lastFrame_.timestampNs << "\n";
     }
+}
+
+void CapApplication::select_home_option(int option) noexcept {
+    constexpr int optionCount = 10;
+    selectedHomeOption_ = (option % optionCount + optionCount) % optionCount;
+    optionPanelOpen_ = false;
+}
+
+std::vector<std::wstring> CapApplication::home_option_choices(int option) const {
+    const auto widen = [](const std::string& value) {
+        return std::wstring(value.begin(), value.end());
+    };
+    std::vector<std::wstring> choices;
+    switch (option) {
+        case 0:
+            if (cameraSelector_) {
+                for (const auto& device : cameraSelector_->devices()) {
+                    choices.push_back(widen(device.name));
+                }
+            }
+            break;
+        case 1:
+            choices = {L"1920 x 1080", L"2560 x 1440", L"3840 x 2160"};
+            if (cameraSelector_) {
+                const auto resolution = cameraSelector_->active_resolution();
+                if (std::find(choices.begin(), choices.end(),
+                    std::to_wstring(resolution.width) + L" x " +
+                    std::to_wstring(resolution.height)) == choices.end()) {
+                    choices.push_back(std::to_wstring(resolution.width) + L" x " +
+                                      std::to_wstring(resolution.height) + L" (Custom)");
+                }
+            }
+            break;
+        case 2:
+            choices = {L"30 FPS", L"60 FPS"};
+            if (cameraSelector_ && cameraSelector_->active_fps() != 30 &&
+                cameraSelector_->active_fps() != 60) {
+                choices.push_back(std::to_wstring(cameraSelector_->active_fps()) + L" FPS");
+            }
+            break;
+        case 3:
+            if (cameraSelector_) {
+                const auto* device = cameraSelector_->active_device();
+                if (device) {
+                    for (const auto mode : device->supportedCompressions) {
+                        choices.push_back(widen(capture::capture_compression_name(mode)));
+                    }
+                }
+            }
+            break;
+        case 4:
+            choices = {L"Passthrough (Direct)", L"CRT Scanlines",
+                       L"Sharpening", L"High Contrast"};
+            break;
+        case 5:
+            choices = {L"Smooth", L"Lanczos-3"};
+            break;
+        case 6:
+            for (const auto& device : audioEngine_->input_devices()) {
+                choices.push_back(device.name);
+            }
+            break;
+        case 7:
+            for (int volume = 0; volume <= 100; volume += 10) {
+                choices.push_back(std::to_wstring(volume) + L"%");
+            }
+            break;
+        case 8:
+            choices = {L"Unmuted", L"Muted"};
+            break;
+        case 9:
+            choices = {L"Windowed", L"Fullscreen"};
+            break;
+    }
+    return choices;
+}
+
+int CapApplication::current_option_choice(int option) const {
+    switch (option) {
+        case 0:
+            return cameraSelector_ ? static_cast<int>(cameraSelector_->active_index()) : -1;
+        case 1: {
+            if (!cameraSelector_) return -1;
+            const auto resolution = cameraSelector_->active_resolution();
+            if (resolution.width == 1920 && resolution.height == 1080) return 0;
+            if (resolution.width == 2560 && resolution.height == 1440) return 1;
+            if (resolution.width == 3840 && resolution.height == 2160) return 2;
+            return 3;
+        }
+        case 2:
+            if (!cameraSelector_) return -1;
+            if (cameraSelector_->active_fps() == 30) return 0;
+            if (cameraSelector_->active_fps() == 60) return 1;
+            return 2;
+        case 3: {
+            if (!cameraSelector_) return -1;
+            const auto* device = cameraSelector_->active_device();
+            if (!device) return -1;
+            const auto mode = std::find(device->supportedCompressions.begin(),
+                                        device->supportedCompressions.end(), captureCompression_);
+            return mode == device->supportedCompressions.end()
+                ? -1 : static_cast<int>(mode - device->supportedCompressions.begin());
+        }
+        case 4:
+            return static_cast<int>(activeFilter_);
+        case 5:
+            return useLanczosScaling_ ? 1 : 0;
+        case 6: {
+            const auto devices = audioEngine_->input_devices();
+            const auto id = audioEngine_->selected_input_device_id();
+            const auto device = std::find_if(devices.begin(), devices.end(),
+                [&id](const audio::AudioInputDevice& input) { return input.id == id; });
+            return device == devices.end() ? -1 : static_cast<int>(device - devices.begin());
+        }
+        case 7:
+            return static_cast<int>(std::lround(audioEngine_->volume() * 10.0f));
+        case 8:
+            return audioEngine_->is_muted() ? 1 : 0;
+        case 9:
+            return window_->is_fullscreen() ? 1 : 0;
+        default:
+            return -1;
+    }
+}
+
+void CapApplication::open_option_panel() {
+    const auto choices = home_option_choices(selectedHomeOption_);
+    if (choices.empty()) return;
+    const int current = current_option_choice(selectedHomeOption_);
+    selectedOptionChoice_ = current >= 0 && current < static_cast<int>(choices.size())
+        ? current : 0;
+    optionPanelOpen_ = true;
+}
+
+void CapApplication::apply_option_choice(int option, size_t choice) {
+    const auto choices = home_option_choices(option);
+    if (choice >= choices.size()) return;
+    switch (option) {
+        case 0:
+            if (cameraSelector_) cameraSelector_->select_device(static_cast<uint32_t>(choice));
+            break;
+        case 1: {
+            constexpr std::array<std::pair<uint32_t, uint32_t>, 3> resolutions{{
+                {1920, 1080}, {2560, 1440}, {3840, 2160}
+            }};
+            if (cameraSelector_) {
+                if (choice < resolutions.size()) {
+                    cameraSelector_->set_resolution(resolutions[choice].first,
+                                                    resolutions[choice].second);
+                } else {
+                    const auto current = cameraSelector_->active_resolution();
+                    cameraSelector_->set_resolution(current.width, current.height);
+                }
+            }
+            break;
+        }
+        case 2:
+            if (cameraSelector_) {
+                if (choice == 0) cameraSelector_->set_fps(30);
+                else if (choice == 1) cameraSelector_->set_fps(60);
+            }
+            break;
+        case 3: {
+            const auto* device = cameraSelector_ ? cameraSelector_->active_device() : nullptr;
+            if (!device || choice >= device->supportedCompressions.size()) break;
+            captureCompression_ = device->supportedCompressions[choice];
+            const auto resolution = cameraSelector_->active_resolution();
+            capture::CaptureDeviceConfig config{};
+            config.targetWidth = resolution.width;
+            config.targetHeight = resolution.height;
+            config.targetFps = cameraSelector_->active_fps();
+            config.preferredFormat = device->preferredFormat;
+            config.compression = captureCompression_;
+            config.deviceName = device->name;
+            config.enableZeroCopy = true;
+            queue_capture_reconfiguration({device->symbolicLink, std::move(config)});
+            break;
+        }
+        case 4:
+            activeFilter_ = static_cast<ui::FilterMode>(choice);
+            break;
+        case 5:
+            useLanczosScaling_ = choice == 1;
+            break;
+        case 6: {
+            const auto devices = audioEngine_->input_devices();
+            if (choice < devices.size()) audioEngine_->select_input_device_id(devices[choice].id);
+            break;
+        }
+        case 7:
+            audioEngine_->set_volume(static_cast<float>(choice) / 10.0f);
+            break;
+        case 8:
+            audioEngine_->set_muted(choice == 1);
+            break;
+        case 9:
+            if ((choice == 1) != window_->is_fullscreen()) window_->toggle_fullscreen();
+            break;
+    }
+    save_settings();
 }
 
 int CapApplication::run() {
@@ -709,7 +977,7 @@ void CapApplication::render_frame() {
     std::lock_guard frameLock(lastFrameMutex_);
     if (d3dRenderer_) {
         if (d3dRenderer_->render(
-                lastFrame_, options_.showHud,
+                lastFrame_, options_.showHud || showNegotiatedInfo_,
                 [this](HDC hudDc, int hudWidth, int hudHeight) {
                     render_hud(hudDc, hudWidth, hudHeight);
                 }, useLanczosScaling_)) {
@@ -814,7 +1082,7 @@ void CapApplication::render_frame() {
     // ----------------------------------------------------------------
     // 2. HUD overlay (always on top of frame)
     // ----------------------------------------------------------------
-    if (options_.showHud) {
+    if (options_.showHud || showNegotiatedInfo_) {
         render_hud(memDC_, width, height);
     }
 
@@ -831,132 +1099,281 @@ void CapApplication::render_hud(HDC hdc, int width, int height) {
     (void)width;
     (void)height;
 
-    // HUD Card Background (Glassmorphic dark card)
-    RECT hudRect{20, 20, 580, 530};
-    HBRUSH cardBrush = CreateSolidBrush(RGB(24, 30, 44));
-    HPEN borderPen = CreatePen(PS_SOLID, 1, RGB(59, 130, 246)); // Vibrant blue
-    HBRUSH oldBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, cardBrush));
-    HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(hdc, borderPen));
-    RoundRect(hdc, hudRect.left, hudRect.top, hudRect.right, hudRect.bottom, 12, 12);
+    SetBkMode(hdc, TRANSPARENT);
+    if (!options_.showHud) {
+        if (!showNegotiatedInfo_) return;
+        RECT monitorPanel{16, 16, 584, 184};
+        HBRUSH monitorBrush = CreateSolidBrush(RGB(18, 25, 39));
+        HPEN monitorPen = CreatePen(PS_SOLID, 1, RGB(47, 64, 91));
+        HBRUSH oldMonitorBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, monitorBrush));
+        HPEN oldMonitorPen = reinterpret_cast<HPEN>(SelectObject(hdc, monitorPen));
+        RoundRect(hdc, monitorPanel.left, monitorPanel.top,
+                  monitorPanel.right, monitorPanel.bottom, 20, 20);
+        SelectObject(hdc, oldMonitorBrush);
+        SelectObject(hdc, oldMonitorPen);
+        DeleteObject(monitorBrush);
+        DeleteObject(monitorPen);
+
+        HFONT monitorFont = CreateFontW(12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+            DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+        HFONT oldMonitorFont = reinterpret_cast<HFONT>(SelectObject(hdc, monitorFont));
+        render_monitoring_info(hdc, 30);
+        SetTextColor(hdc, RGB(132, 154, 183));
+        constexpr const wchar_t* monitorControls = L"Tab hide  -  Esc menu";
+        TextOutW(hdc, 38, 158, monitorControls,
+                 static_cast<int>(wcslen(monitorControls)));
+        SelectObject(hdc, oldMonitorFont);
+        DeleteObject(monitorFont);
+        return;
+    }
+
+    RECT panel{16, 16, 584, showNegotiatedInfo_ ? 670 : 544};
+    HBRUSH panelBrush = CreateSolidBrush(RGB(18, 25, 39));
+    HPEN panelPen = CreatePen(PS_SOLID, 1, RGB(47, 64, 91));
+    HBRUSH oldBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, panelBrush));
+    HPEN oldPen = reinterpret_cast<HPEN>(SelectObject(hdc, panelPen));
+    RoundRect(hdc, panel.left, panel.top, panel.right, panel.bottom, 20, 20);
     SelectObject(hdc, oldBrush);
     SelectObject(hdc, oldPen);
-    DeleteObject(cardBrush);
-    DeleteObject(borderPen);
+    DeleteObject(panelBrush);
+    DeleteObject(panelPen);
 
-    SetBkMode(hdc, TRANSPARENT);
-
-    // Title
-    SetTextColor(hdc, RGB(96, 165, 250)); // Bright blue
-    HFONT titleFont = CreateFontW(20, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+    SetTextColor(hdc, RGB(115, 218, 255));
+    HFONT titleFont = CreateFontW(25, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
         DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
     HFONT oldFont = reinterpret_cast<HFONT>(SelectObject(hdc, titleFont));
-    TextOutW(hdc, 35, 35, L"CapApp - Live Capture & Telemetry", 34);
+    TextOutW(hdc, 36, 31, L"CAPTURE HOME", 12);
+    SetTextColor(hdc, RGB(166, 184, 209));
+    HFONT subFont = CreateFontW(12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+        DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+    SelectObject(hdc, subFont);
+    constexpr const wchar_t* subtitle = L"Choose a setting  -  → / Enter opens options";
+    TextOutW(hdc, 38, 63, subtitle, static_cast<int>(wcslen(subtitle)));
 
-    // Metrics text
     HFONT bodyFont = CreateFontW(15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-        DEFAULT_PITCH | FF_DONTCARE, L"Consolas");
+        DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
     SelectObject(hdc, bodyFont);
-    DeleteObject(titleFont);
 
-    SetTextColor(hdc, RGB(226, 232, 240)); // Slate 200
-
-    auto syncStats = avSync_->stats();
-    auto audioStats = audioEngine_->stats();
-    auto audioMeter = audioEngine_->meter_levels();
-    auto recStats = frameRecorder_ ? frameRecorder_->stats() : capture::FrameRecorderStats{};
-    const auto& devInfo = vulkanCtx_->selected_device_info();
     const auto* activeCam = cameraSelector_ ? cameraSelector_->active_device() : nullptr;
     const auto widen = [](const std::string& value) {
         return std::wstring(value.begin(), value.end());
     };
-
-    std::wstringstream ss;
-    ss << L"Active Camera    : [" << (activeCam ? activeCam->index : 0) << L"] ";
-    if (activeCam) {
-        for (char c : activeCam->name) ss << static_cast<wchar_t>(c);
-    } else {
-        ss << L"Default";
-    }
-    ss << L" (" << (activeCam ? activeCam->width : 1920) << L"x" << (activeCam ? activeCam->height : 1080)
-       << L" @" << (activeCam ? activeCam->maxFps : 60) << L")\n";
-
-    ss << L"FPS / Frame Time : " << std::fixed << std::setprecision(1) << currentFps_ << L" FPS ("
-       << std::setprecision(2) << (1000.0 / (currentFps_ > 0 ? currentFps_ : 60.0)) << L" ms)\n";
-    ss << L"Scaling Filter   : " << (useLanczosScaling_ ? L"Lanczos-3" : L"Smooth mipmap")
-       << L" [L toggles]\n";
-    ss << L"Capture Format   : " << capture::capture_compression_name(captureCompression_)
-       << L" [K cycles]\n";
-    ss << L"--- Negotiated Capture / USB ---\n";
-    ss << L"Source           : " << widen(captureStreamInfo_.sourceFormat) << L" "
-       << captureStreamInfo_.sourceWidth << L"x" << captureStreamInfo_.sourceHeight
-       << L" @" << captureStreamInfo_.sourceFps << L" FPS\n";
-    ss << L"Output           : " << widen(captureStreamInfo_.outputFormat) << L" (decoded)\n";
-    ss << L"USB Link         : " << widen(captureStreamInfo_.usbLinkSpeed);
-    if (captureStreamInfo_.usbMaxMbps == 0) {
-        ss << L" | speed unavailable\n";
-    } else if (captureStreamInfo_.usbLinkSpeed == "USB SuperSpeed+") {
-        ss << L" | capacity >= " << captureStreamInfo_.usbMaxMbps << L" Mbps\n";
-    } else {
-        ss << L" | max " << captureStreamInfo_.usbMaxMbps << L" Mbps theoretical\n";
-    }
-    ss << L"USB Payload      : ";
-    if (captureStreamInfo_.nominalInputBandwidthKnown) {
-        ss << std::setprecision(1) << captureStreamInfo_.nominalInputMbps
-           << L" Mbps nominal YUY2";
-    } else if (captureStreamInfo_.sourceFormat == "MJPEG") {
-        ss << L"compressed rate unavailable (Media Foundation)";
-    } else {
-        ss << L"unavailable";
-    }
-    ss << L"\n";
-    ss << L"Capture / Render : " << std::setprecision(2) << captureAcquireMs_
-       << L" / " << renderFrameMs_ << L" ms avg\n";
-    ss << L"Glass-to-Glass   : ~8.3 ms (Ultra Low-Latency)\n";
-    ss << L"A/V PTS Drift    : " << (syncStats.currentDriftNs / 1'000'000.0) << L" ms (Synchronized)\n";
-    ss << L"Shader FX Filter : ";
-    auto filterName = ui::filter_mode_name(activeFilter_);
-    for (char c : filterName) ss << static_cast<wchar_t>(c);
-    ss << L"\n";
-
+    const auto resolution = cameraSelector_ ? cameraSelector_->active_resolution()
+                                            : capture::ResolutionPreset{};
     const auto audioDevices = audioEngine_->input_devices();
-    ss << L"Audio Input      : ";
-    if (audioEngine_->selected_input_device_name().empty()) {
-        ss << L"No input selected";
-    } else {
-        ss << audioEngine_->selected_input_device_name();
-    }
-    ss << L" (" << audioDevices.size() << L" available)"
-       << (audioEngine_->device_capture_available() ? L" [READY]" : L" [UNAVAILABLE]") << L"\n";
-    ss << L"Audio Monitor    : "
-       << (audioEngine_->monitoring_available() ? L"[PLAYING TO DEFAULT OUTPUT]" : L"[UNAVAILABLE]") << L"\n";
-    if (!audioEngine_->monitoring_available() && !audioEngine_->monitoring_error().empty()) {
-        ss << L"Monitor Error    : " << widen(audioEngine_->monitoring_error()) << L"\n";
-    }
-    ss << L"Audio Peak/RMS   : L:" << std::setprecision(1) << audioMeter.peakDbLeft << L"dB | R:" << audioMeter.peakDbRight
-       << L" | Volume " << std::setprecision(0) << (audioEngine_->volume() * 100.0f) << L"%"
-       << (audioEngine_->is_muted() ? L" [MUTED]" : L"") << L"\n";
-    if (!audioEngine_->device_capture_available()) {
-        ss << L"Audio Capture    : " << widen(audioEngine_->capture_error().empty()
-            ? "Starting default input..." : audioEngine_->capture_error()) << L"\n";
-    }
-    ss << L"Snapshots Saved  : " << recStats.totalSnapshotsSaved << L" frames\n";
-    ss << L"Vulkan GPU       : " << (devInfo.properties.deviceName[0] ? L"Discrete GPU" : L"Direct Native")
-       << (window_->is_fullscreen() ? L" [Exclusive Fullscreen]" : L" [Windowed]") << L"\n";
-    ss << L"Status           : " << (isPaused_ ? L"[PAUSED]" : L"[LIVE STREAMING]") << L"\n";
-    ss << L"--------------------------------------------------\n";
-    ss << L"Keys: [C] Cam | [R] Res | [P] FPS | [K] Format | [F] FX | [S] Snap | [I] Cycle Audio Input | [+/-] Volume | [M] Mute | [Tab] HUD";
+    std::array<std::wstring, 10> values{
+        activeCam ? widen(activeCam->name) : L"No camera",
+        std::to_wstring(resolution.width) + L" x " + std::to_wstring(resolution.height),
+        std::to_wstring(cameraSelector_ ? cameraSelector_->active_fps() : options_.targetFps) + L" FPS",
+        widen(capture::capture_compression_name(captureCompression_)),
+        widen(std::string(ui::filter_mode_name(activeFilter_))),
+        useLanczosScaling_ ? L"Lanczos-3" : L"Smooth",
+        audioEngine_->selected_input_device_name().empty()
+            ? L"No audio input" : audioEngine_->selected_input_device_name(),
+        std::to_wstring(static_cast<int>(std::lround(audioEngine_->volume() * 100.0f))) + L"%",
+        audioEngine_->is_muted() ? L"Muted" : L"Unmuted",
+        window_->is_fullscreen() ? L"Fullscreen" : L"Windowed"
+    };
+    const std::array<const wchar_t*, 10> labels{
+        L"VIDEO INPUT", L"RESOLUTION", L"FRAME RATE", L"CAPTURE FORMAT", L"PICTURE FILTER",
+        L"SCALING", L"AUDIO INPUT", L"VOLUME", L"AUDIO MUTE", L"DISPLAY"
+    };
+    constexpr int rowTop = 100;
+    constexpr int rowHeight = 40;
+    for (int i = 0; i < static_cast<int>(values.size()); ++i) {
+        const int y = rowTop + i * rowHeight;
+        RECT row{28, y, 572, y + 36};
+        const bool focused = i == selectedHomeOption_;
+        HBRUSH rowBrush = CreateSolidBrush(focused ? RGB(37, 61, 91) : RGB(25, 35, 52));
+        HPEN rowPen = CreatePen(PS_SOLID, focused ? 2 : 1,
+                                focused ? RGB(71, 190, 245) : RGB(39, 53, 74));
+        HBRUSH previousBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, rowBrush));
+        HPEN previousPen = reinterpret_cast<HPEN>(SelectObject(hdc, rowPen));
+        RoundRect(hdc, row.left, row.top, row.right, row.bottom, 9, 9);
+        SelectObject(hdc, previousBrush);
+        SelectObject(hdc, previousPen);
+        DeleteObject(rowBrush);
+        DeleteObject(rowPen);
 
-    std::wstring line;
-    int yOffset = 70;
-    while (std::getline(ss, line)) {
-        TextOutW(hdc, 35, yOffset, line.c_str(), static_cast<int>(line.length()));
-        yOffset += 22;
+        SetTextColor(hdc, focused ? RGB(120, 221, 255) : RGB(153, 171, 196));
+        TextOutW(hdc, 42, y + 10, labels[i], static_cast<int>(wcslen(labels[i])));
+
+        HPEN radioPen = CreatePen(PS_SOLID, 2, RGB(84, 199, 245));
+        HBRUSH radioBrush = CreateSolidBrush(focused ? RGB(37, 61, 91) : RGB(25, 35, 52));
+        HPEN previousRadioPen = reinterpret_cast<HPEN>(SelectObject(hdc, radioPen));
+        HBRUSH previousRadioBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, radioBrush));
+        Ellipse(hdc, 263, y + 10, 279, y + 26);
+        HBRUSH dot = CreateSolidBrush(RGB(84, 199, 245));
+        HBRUSH previousDot = reinterpret_cast<HBRUSH>(SelectObject(hdc, dot));
+        Ellipse(hdc, 268, y + 15, 274, y + 21);
+        SelectObject(hdc, previousDot);
+        DeleteObject(dot);
+        SelectObject(hdc, previousRadioBrush);
+        SelectObject(hdc, previousRadioPen);
+        DeleteObject(radioBrush);
+        DeleteObject(radioPen);
+
+        SetTextColor(hdc, RGB(239, 246, 255));
+        RECT valueRect{292, y + 5, 556, y + 31};
+        DrawTextW(hdc, values[i].c_str(), -1, &valueRect,
+                  DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_LEFT);
+    }
+
+    if (optionPanelOpen_) {
+        RECT optionPanel{596, 16, 944, 544};
+        HBRUSH optionPanelBrush = CreateSolidBrush(RGB(18, 25, 39));
+        HPEN optionPanelPen = CreatePen(PS_SOLID, 1, RGB(47, 64, 91));
+        HBRUSH oldOptionBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, optionPanelBrush));
+        HPEN oldOptionPen = reinterpret_cast<HPEN>(SelectObject(hdc, optionPanelPen));
+        RoundRect(hdc, optionPanel.left, optionPanel.top,
+                  optionPanel.right, optionPanel.bottom, 20, 20);
+        SelectObject(hdc, oldOptionBrush);
+        SelectObject(hdc, oldOptionPen);
+        DeleteObject(optionPanelBrush);
+        DeleteObject(optionPanelPen);
+
+        SetTextColor(hdc, RGB(115, 218, 255));
+        SelectObject(hdc, titleFont);
+        TextOutW(hdc, 620, 31, L"OPTIONS", 7);
+        SetTextColor(hdc, RGB(166, 184, 209));
+        SelectObject(hdc, subFont);
+        TextOutW(hdc, 622, 63, labels[selectedHomeOption_],
+                 static_cast<int>(wcslen(labels[selectedHomeOption_])));
+
+        const auto choices = home_option_choices(selectedHomeOption_);
+        const int currentChoice = current_option_choice(selectedHomeOption_);
+        constexpr int choiceTop = 106;
+        constexpr int choiceHeight = 38;
+        constexpr int visibleChoices = 10;
+        const int firstChoice = std::max(0, std::min(
+            selectedOptionChoice_ - visibleChoices / 2,
+            static_cast<int>(choices.size()) - visibleChoices));
+        const int lastChoice = std::min(firstChoice + visibleChoices,
+                                        static_cast<int>(choices.size()));
+        for (int choice = firstChoice; choice < lastChoice; ++choice) {
+            const int row = choice - firstChoice;
+            const int y = choiceTop + row * choiceHeight;
+            RECT choiceRect{608, y, 932, y + 34};
+            const bool focused = choice == selectedOptionChoice_;
+            const bool checked = choice == currentChoice;
+            HBRUSH choiceBrush = CreateSolidBrush(
+                focused ? RGB(37, 61, 91) : RGB(25, 35, 52));
+            HPEN choicePen = CreatePen(PS_SOLID, focused ? 2 : 1,
+                focused ? RGB(71, 190, 245) : RGB(39, 53, 74));
+            HBRUSH previousBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, choiceBrush));
+            HPEN previousPen = reinterpret_cast<HPEN>(SelectObject(hdc, choicePen));
+            RoundRect(hdc, choiceRect.left, choiceRect.top,
+                      choiceRect.right, choiceRect.bottom, 8, 8);
+            SelectObject(hdc, previousBrush);
+            SelectObject(hdc, previousPen);
+            DeleteObject(choiceBrush);
+            DeleteObject(choicePen);
+
+            HPEN radioPen = CreatePen(PS_SOLID, 2, checked ? RGB(84, 199, 245) : RGB(112, 132, 160));
+            HBRUSH radioBrush = CreateSolidBrush(focused ? RGB(37, 61, 91) : RGB(25, 35, 52));
+            HPEN previousRadioPen = reinterpret_cast<HPEN>(SelectObject(hdc, radioPen));
+            HBRUSH previousRadioBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, radioBrush));
+            Ellipse(hdc, 624, y + 9, 640, y + 25);
+            if (checked) {
+                HBRUSH dotBrush = CreateSolidBrush(RGB(84, 199, 245));
+                HBRUSH previousDotBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, dotBrush));
+                Ellipse(hdc, 629, y + 14, 635, y + 20);
+                SelectObject(hdc, previousDotBrush);
+                DeleteObject(dotBrush);
+            }
+            SelectObject(hdc, previousRadioBrush);
+            SelectObject(hdc, previousRadioPen);
+            DeleteObject(radioBrush);
+            DeleteObject(radioPen);
+
+            SetTextColor(hdc, focused ? RGB(239, 246, 255) : RGB(184, 199, 220));
+            RECT choiceText{652, y + 4, 916, y + 30};
+            DrawTextW(hdc, choices[choice].c_str(), -1, &choiceText,
+                      DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_LEFT);
+        }
+        SetTextColor(hdc, RGB(132, 154, 183));
+        SelectObject(hdc, subFont);
+        constexpr const wchar_t* optionControls = L"↑/↓ choose    Enter select    ← back";
+        TextOutW(hdc, 620, 511, optionControls,
+                 static_cast<int>(wcslen(optionControls)));
+    }
+
+    SetTextColor(hdc, RGB(132, 154, 183));
+    SelectObject(hdc, subFont);
+    if (showNegotiatedInfo_) {
+        render_monitoring_info(hdc, 510);
+        SetTextColor(hdc, RGB(132, 154, 183));
+        constexpr const wchar_t* controls = L"Esc menu    Tab toggle monitoring details";
+        TextOutW(hdc, 38, 650, controls, static_cast<int>(wcslen(controls)));
+    } else {
+        constexpr const wchar_t* controls = L"Esc menu    Tab show monitoring details";
+        TextOutW(hdc, 38, 511, controls, static_cast<int>(wcslen(controls)));
+        const std::wstring status =
+            (audioEngine_->device_capture_available() ? L"MIC READY" : L"MIC UNAVAILABLE") +
+            std::wstring(L"   ·   ") +
+            (audioEngine_->monitoring_available() ? L"MONITORING" : L"NO OUTPUT");
+        SetTextColor(hdc, audioEngine_->monitoring_available()
+            ? RGB(110, 231, 183) : RGB(248, 113, 113));
+        TextOutW(hdc, 38, 529, status.c_str(), static_cast<int>(status.size()));
     }
 
     SelectObject(hdc, oldFont);
+    DeleteObject(subFont);
     DeleteObject(bodyFont);
+    DeleteObject(titleFont);
+#endif
+}
+
+void CapApplication::render_monitoring_info(HDC hdc, int top) {
+#if defined(_WIN32)
+    const auto widen = [](const std::string& value) {
+        return std::wstring(value.begin(), value.end());
+    };
+    SetTextColor(hdc, RGB(115, 218, 255));
+    TextOutW(hdc, 38, top, L"NEGOTIATED / RUNNING", 20);
+    SetTextColor(hdc, RGB(184, 199, 220));
+    const auto sourceMode =
+        std::to_wstring(captureStreamInfo_.sourceWidth) + L" x " +
+        std::to_wstring(captureStreamInfo_.sourceHeight) + L" @ " +
+        std::to_wstring(captureStreamInfo_.sourceFps) + L" FPS  " +
+        widen(captureStreamInfo_.sourceFormat);
+    TextOutW(hdc, 38, top + 20, sourceMode.c_str(), static_cast<int>(sourceMode.size()));
+    const auto runningMode =
+        L"Running: " + std::to_wstring(lastFrame_.width) + L" x " +
+        std::to_wstring(lastFrame_.height) + L" @ " +
+        std::to_wstring(currentFps_).substr(0, 5) + L" FPS  " +
+        widen(captureStreamInfo_.outputFormat);
+    TextOutW(hdc, 38, top + 38, runningMode.c_str(), static_cast<int>(runningMode.size()));
+    const auto timings =
+        L"Capture " + std::to_wstring(captureAcquireMs_).substr(0, 5) +
+        L" ms    Render " + std::to_wstring(renderFrameMs_).substr(0, 5) + L" ms";
+    TextOutW(hdc, 38, top + 56, timings.c_str(), static_cast<int>(timings.size()));
+    const auto usb =
+        L"USB: " + widen(captureStreamInfo_.usbLinkSpeed) +
+        (captureStreamInfo_.usbMaxMbps
+            ? L" (" + std::to_wstring(captureStreamInfo_.usbMaxMbps) + L" Mbps)"
+            : L"");
+    TextOutW(hdc, 38, top + 74, usb.c_str(), static_cast<int>(usb.size()));
+    const auto bandwidth = captureStreamInfo_.nominalInputBandwidthKnown
+        ? L"Nominal input: " +
+            std::to_wstring(captureStreamInfo_.nominalInputMbps).substr(0, 6) + L" Mbps"
+        : L"Nominal input bandwidth: N/A";
+    TextOutW(hdc, 38, top + 92, bandwidth.c_str(), static_cast<int>(bandwidth.size()));
+
+    const std::wstring audioStatus =
+        (audioEngine_->device_capture_available() ? L"MIC READY" : L"MIC UNAVAILABLE") +
+        std::wstring(L"   ·   ") +
+        (audioEngine_->monitoring_available() ? L"MONITORING" : L"NO OUTPUT");
+    SetTextColor(hdc, audioEngine_->monitoring_available()
+        ? RGB(110, 231, 183) : RGB(248, 113, 113));
+    TextOutW(hdc, 38, top + 110, audioStatus.c_str(), static_cast<int>(audioStatus.size()));
+#else
+    (void)hdc;
+    (void)top;
 #endif
 }
 

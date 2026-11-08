@@ -101,7 +101,7 @@ public:
     [[nodiscard]] std::wstring selected_input_device_name() const;
     [[nodiscard]] std::wstring selected_input_device_id() const;
     bool select_input_device_id(const std::wstring& id);
-    bool cycle_input_device();
+    bool cycle_input_device(int direction = 1);
     void set_volume(float volume) noexcept;
     [[nodiscard]] float volume() const noexcept;
     void set_muted(bool muted) noexcept;

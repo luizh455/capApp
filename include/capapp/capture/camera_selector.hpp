@@ -73,12 +73,12 @@ public:
     /**
      * @brief Cycles through supported resolution presets (1080p -> 1440p -> 4K).
      */
-    ResolutionPreset cycle_resolution() noexcept;
+    ResolutionPreset cycle_resolution(int direction = 1) noexcept;
 
     /**
      * @brief Cycles through target frame rates (30 FPS <-> 60 FPS).
      */
-    uint32_t cycle_fps() noexcept;
+    uint32_t cycle_fps(int direction = 1) noexcept;
 
     bool set_resolution(uint32_t width, uint32_t height) noexcept;
     bool set_fps(uint32_t fps) noexcept;
