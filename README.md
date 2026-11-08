@@ -11,7 +11,7 @@ CapApp opens a video capture device, displays its feed in a resizable window or 
 - Lets you switch capture format, resolution, frame-rate target, and scaling filter while running.
 - Resizes the windowed preview to the running capture frame's native size, scaling down proportionally when it will not fit the screen.
 - Lets you select both the audio input and monitoring output devices from the settings menu.
-- Offers Lanczos-3 and smooth mipmap scaling options.
+- Offers None (nearest-neighbor), smooth mipmap, and Lanczos-3 scaling options.
 - Displays selected settings separately from the negotiated source mode and live running output, FPS, timing, and USB link information (`Tab`).
 - Reports nominal YUY2 input bandwidth when available. MJPEG’s compressed bitrate is shown as unavailable because the current Media Foundation path exposes decoded frames.
 - Supports windowed and fullscreen viewing, plus frame snapshots.
@@ -82,7 +82,6 @@ The live preview opens with a controller-friendly home panel. Click a setting or
 | `P` | Cycle target frame rate |
 | `K` | Cycle available capture formats |
 | `L` | Toggle scaling filter |
-| `F` | Cycle post-processing effects |
 | `S` | Save a frame snapshot |
 | `F11` | Toggle fullscreen/windowed mode |
 | `I` | Cycle audio input |

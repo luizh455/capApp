@@ -1,6 +1,7 @@
 #pragma once
 
 #include <capapp/frame.hpp>
+#include <cstdint>
 #include <functional>
 #include <memory>
 
@@ -16,6 +17,12 @@
 
 namespace capapp::ui {
 
+enum class ScalingMode : uint8_t {
+    None = 0,
+    Smooth,
+    Lanczos3
+};
+
 class D3D11Renderer {
 public:
     D3D11Renderer();
@@ -28,7 +35,7 @@ public:
     bool initialize(HWND window);
     bool render(const Frame& frame, bool showHud,
                 const std::function<void(HDC, int, int)>& drawHud,
-                bool useLanczos = false);
+                bool useLanczos = false, bool noScaling = false);
 #endif
 
 private:

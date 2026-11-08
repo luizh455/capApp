@@ -83,8 +83,7 @@ int main(int argc, char* argv[]) {
             std::cout << "  R     - Cycle Target Resolution (1080p -> 1440p -> 4K)\n";
             std::cout << "  P     - Cycle Target FPS (30 FPS <-> 60 FPS)\n";
             std::cout << "  K     - Cycle Capture Format (Auto, YUY2, MJPEG)\n";
-            std::cout << "  L     - Toggle Scaling Filter (Smooth / Lanczos-3)\n";
-            std::cout << "  F     - Cycle Post-Processing Shader FX (Scanlines, Sharpen, Contrast)\n";
+            std::cout << "  L     - Cycle Scaling Filter (None / Smooth / Lanczos-3)\n";
             std::cout << "  S     - Take High-Res Frame Snapshot\n";
             std::cout << "  I     - Cycle Audio Input | +/- - Volume | M - Mute\n";
             std::cout << "  Up/Down - Select home setting | Left/Right/Enter - Change it | Click a setting to cycle\n";

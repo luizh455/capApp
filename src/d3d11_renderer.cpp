@@ -83,6 +83,15 @@ float4 main(float4 position : SV_Position, float2 texCoord : TEXCOORD0) : SV_Tar
 }
 )";
 
+constexpr char kVideoSamplePixelShader[] = R"(
+Texture2D videoTexture : register(t0);
+SamplerState videoSampler : register(s0);
+
+float4 main(float4 position : SV_Position, float2 texCoord : TEXCOORD0) : SV_Target {
+    return videoTexture.Sample(videoSampler, texCoord);
+}
+)";
+
 constexpr char kHudPixelShader[] = R"(
 Texture2D hudTexture : register(t0);
 SamplerState hudSampler : register(s0);
@@ -122,8 +131,11 @@ struct D3D11Renderer::Impl {
     ComPtr<ID3D11RenderTargetView> renderTarget;
     ComPtr<ID3D11VertexShader> vertexShader;
     ComPtr<ID3D11PixelShader> videoPixelShader;
+    ComPtr<ID3D11PixelShader> videoSamplePixelShader;
     ComPtr<ID3D11PixelShader> hudPixelShader;
     ComPtr<ID3D11SamplerState> sampler;
+    ComPtr<ID3D11SamplerState> linearSampler;
+    ComPtr<ID3D11SamplerState> pointSampler;
     ComPtr<ID3D11Buffer> scaleParamsBuffer;
     std::array<ComPtr<ID3D11Texture2D>, kVideoTextureCount> videoTextures;
     std::array<ComPtr<ID3D11ShaderResourceView>, kVideoTextureCount> videoViews;
@@ -385,14 +397,19 @@ bool D3D11Renderer::initialize(HWND window) {
 
     ComPtr<ID3DBlob> vertexCode;
     ComPtr<ID3DBlob> videoCode;
+    ComPtr<ID3DBlob> videoSampleCode;
     ComPtr<ID3DBlob> hudCode;
     if (!compile_shader(kVertexShader, "vs_4_0", vertexCode) ||
         !compile_shader(kVideoPixelShader, "ps_4_0", videoCode) ||
+        !compile_shader(kVideoSamplePixelShader, "ps_4_0", videoSampleCode) ||
         !compile_shader(kHudPixelShader, "ps_4_0", hudCode) ||
         FAILED(impl_->device->CreateVertexShader(vertexCode->GetBufferPointer(), vertexCode->GetBufferSize(),
                                                   nullptr, &impl_->vertexShader)) ||
         FAILED(impl_->device->CreatePixelShader(videoCode->GetBufferPointer(), videoCode->GetBufferSize(),
                                                  nullptr, &impl_->videoPixelShader)) ||
+        FAILED(impl_->device->CreatePixelShader(videoSampleCode->GetBufferPointer(),
+                                                 videoSampleCode->GetBufferSize(), nullptr,
+                                                 &impl_->videoSamplePixelShader)) ||
         FAILED(impl_->device->CreatePixelShader(hudCode->GetBufferPointer(), hudCode->GetBufferSize(),
                                                  nullptr, &impl_->hudPixelShader))) {
         std::cerr << "[D3D11] Failed to create presentation shaders.\n";
@@ -418,6 +435,11 @@ bool D3D11Renderer::initialize(HWND window) {
     samplerDesc.MaxAnisotropy = 16;
     samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
     if (FAILED(impl_->device->CreateSamplerState(&samplerDesc, &impl_->sampler))) return false;
+    samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+    samplerDesc.MaxAnisotropy = 1;
+    if (FAILED(impl_->device->CreateSamplerState(&samplerDesc, &impl_->linearSampler))) return false;
+    samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+    if (FAILED(impl_->device->CreateSamplerState(&samplerDesc, &impl_->pointSampler))) return false;
 
     RECT rect{};
     GetClientRect(window, &rect);
@@ -431,7 +453,7 @@ bool D3D11Renderer::initialize(HWND window) {
 
 bool D3D11Renderer::render(const Frame& frame, bool showHud,
                            const std::function<void(HDC, int, int)>& drawHud,
-                           bool useLanczos) {
+                           bool useLanczos, bool noScaling) {
     if (!impl_->device || !impl_->window) return false;
     RECT rect{};
     GetClientRect(impl_->window, &rect);
@@ -494,8 +516,6 @@ bool D3D11Renderer::render(const Frame& frame, bool showHud,
     impl_->context->RSSetViewports(1, &viewport);
     impl_->context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     impl_->context->VSSetShader(impl_->vertexShader.Get(), nullptr, 0);
-    impl_->context->PSSetSamplers(0, 1, impl_->sampler.GetAddressOf());
-
     if (frame.data && impl_->videoViews[impl_->videoTextureIndex]) {
         uint32_t videoViewWidth = width;
         uint32_t videoViewHeight = height;
@@ -515,9 +535,13 @@ bool D3D11Renderer::render(const Frame& frame, bool showHud,
         videoViewport.Width = static_cast<float>(videoViewWidth);
         videoViewport.Height = static_cast<float>(videoViewHeight);
         videoViewport.MaxDepth = 1.0f;
-        impl_->context->PSSetShader(impl_->videoPixelShader.Get(), nullptr, 0);
+        ID3D11SamplerState* videoSampler = useLanczos
+            ? impl_->linearSampler.Get()
+            : noScaling ? impl_->pointSampler.Get() : impl_->sampler.Get();
+        impl_->context->PSSetSamplers(0, 1, &videoSampler);
         ID3D11ShaderResourceView* nullView = nullptr;
         if (useLanczos) {
+            impl_->context->PSSetShader(impl_->videoPixelShader.Get(), nullptr, 0);
             if (!impl_->create_scale_intermediate(videoViewWidth, frame.height)) return false;
             if (!impl_->set_scale_params(frame.width, frame.height,
                                          videoViewWidth, frame.height, true, false)) {
@@ -548,6 +572,7 @@ bool D3D11Renderer::render(const Frame& frame, bool showHud,
             impl_->context->Draw(3, 0);
             impl_->context->PSSetShaderResources(0, 1, &nullView);
         } else {
+            impl_->context->PSSetShader(impl_->videoSamplePixelShader.Get(), nullptr, 0);
             impl_->context->OMSetRenderTargets(1, impl_->renderTarget.GetAddressOf(), nullptr);
             impl_->context->RSSetViewports(1, &videoViewport);
             impl_->context->PSSetShaderResources(
@@ -558,6 +583,7 @@ bool D3D11Renderer::render(const Frame& frame, bool showHud,
     }
 
     if (showHud && impl_->hudView) {
+        impl_->context->PSSetSamplers(0, 1, impl_->sampler.GetAddressOf());
         D3D11_VIEWPORT hudViewport{};
         hudViewport.Width = static_cast<float>(std::min(width, kHudSurfaceWidth));
         hudViewport.Height = static_cast<float>(std::min(height, kHudSurfaceHeight));

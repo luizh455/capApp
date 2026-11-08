@@ -2,7 +2,6 @@
 
 #include <capapp/ui/window.hpp>
 #include <capapp/ui/d3d11_renderer.hpp>
-#include <capapp/ui/post_processing.hpp>
 #include <capapp/vulkan/vulkan_context.hpp>
 #include <capapp/audio/wasapi_engine.hpp>
 #include <capapp/capture/capture_device.hpp>
@@ -53,7 +52,6 @@ public:
     void cycle_camera() noexcept;
     void cycle_resolution() noexcept;
     void cycle_fps() noexcept;
-    void cycle_filter() noexcept;
     void toggle_scaling_filter() noexcept;
     void cycle_capture_compression(int direction = 1) noexcept;
     void take_snapshot() noexcept;
@@ -95,8 +93,7 @@ private:
     std::atomic<bool> captureReconfiguring_{false};
     bool stopCaptureReconfiguration_{false};
 
-    ui::FilterMode activeFilter_{ui::FilterMode::Passthrough};
-    bool useLanczosScaling_{true};
+    ui::ScalingMode scalingMode_{ui::ScalingMode::Lanczos3};
     capture::CaptureCompression captureCompression_{capture::CaptureCompression::Auto};
     bool isPaused_{false};
     int selectedHomeOption_{0};

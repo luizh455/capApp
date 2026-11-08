@@ -35,8 +35,7 @@ struct AppSettings {
     uint32_t height{1080};
     uint32_t fps{60};
     uint8_t compression{static_cast<uint8_t>(capture::CaptureCompression::Auto)};
-    uint8_t filter{static_cast<uint8_t>(ui::FilterMode::Passthrough)};
-    bool lanczos{true};
+    uint32_t scalingMode{static_cast<uint32_t>(ui::ScalingMode::Lanczos3)};
     std::wstring audioInputId;
     std::wstring audioOutputId;
     float volume{1.0f};
@@ -134,11 +133,14 @@ AppSettings load_settings() {
         value <= static_cast<uint8_t>(capture::CaptureCompression::MJPEG)) {
         settings.compression = static_cast<uint8_t>(value);
     }
-    if (parse_unsigned(values, "filter", value) &&
-        value <= static_cast<uint8_t>(ui::FilterMode::HighContrast)) {
-        settings.filter = static_cast<uint8_t>(value);
+    if (!parse_unsigned(values, "scaling_mode", settings.scalingMode) ||
+        settings.scalingMode > static_cast<uint32_t>(ui::ScalingMode::Lanczos3)) {
+        bool legacyLanczos = true;
+        if (parse_boolean(values, "lanczos", legacyLanczos)) {
+            settings.scalingMode = static_cast<uint32_t>(
+                legacyLanczos ? ui::ScalingMode::Lanczos3 : ui::ScalingMode::Smooth);
+        }
     }
-    parse_boolean(values, "lanczos", settings.lanczos);
     parse_boolean(values, "muted", settings.muted);
     if (const auto it = values.find("camera_name"); it != values.end()) {
         std::istringstream input(it->second);
@@ -293,8 +295,7 @@ void CapApplication::save_settings() const noexcept {
              << "height=" << resolution.height << '\n'
              << "fps=" << (cameraSelector_ ? cameraSelector_->active_fps() : options_.targetFps) << '\n'
              << "compression=" << static_cast<unsigned>(captureCompression_) << '\n'
-             << "filter=" << static_cast<unsigned>(activeFilter_) << '\n'
-             << "lanczos=" << (useLanczosScaling_ ? 1 : 0) << '\n';
+             << "scaling_mode=" << static_cast<uint32_t>(scalingMode_) << '\n';
         if (audioEngine_) {
             file << "audio_input_id=" << encode_wide_id(audioEngine_->selected_input_device_id()) << '\n'
                  << "audio_output_id=" << encode_wide_id(audioEngine_->selected_output_device_id()) << '\n'
@@ -336,8 +337,7 @@ bool CapApplication::initialize() {
         options_.targetFps = saved.fps;
     }
     captureCompression_ = static_cast<capture::CaptureCompression>(saved.compression);
-    activeFilter_ = static_cast<ui::FilterMode>(saved.filter);
-    useLanczosScaling_ = saved.lanczos;
+    scalingMode_ = static_cast<ui::ScalingMode>(saved.scalingMode);
 
     std::cout << "[CapApp] Initializing native window...\n";
     ui::WindowConfig winCfg{};
@@ -532,8 +532,6 @@ bool CapApplication::initialize() {
             cycle_resolution();
         } else if (key == 'P' || key == 'p') {
             cycle_fps();
-        } else if (key == 'F' || key == 'f') {
-            cycle_filter();
         } else if (key == 'S' || key == 's') {
             take_snapshot();
         } else if (key == 'L' || key == 'l') {
@@ -559,7 +557,7 @@ bool CapApplication::initialize() {
     window_->onMouseClick = [this](int32_t x, int32_t y) {
         constexpr int rowTop = 100;
         constexpr int rowHeight = 40;
-        constexpr int optionCount = 11;
+        constexpr int optionCount = 10;
         if (!options_.showHud) return;
         if (optionPanelOpen_ && x >= 604 && x <= 932 && y >= 100) {
             constexpr int choiceTop = 106;
@@ -618,16 +616,12 @@ void CapApplication::cycle_fps() noexcept {
     }
 }
 
-void CapApplication::cycle_filter() noexcept {
-    uint8_t nextMode = (static_cast<uint8_t>(activeFilter_) + 1) % 4;
-    activeFilter_ = static_cast<ui::FilterMode>(nextMode);
-    std::cout << "[CapApp] Post-Processing Shader FX -> " << ui::filter_mode_name(activeFilter_) << "\n";
-}
-
 void CapApplication::toggle_scaling_filter() noexcept {
-    useLanczosScaling_ = !useLanczosScaling_;
-    std::cout << "[CapApp] Scaling filter -> "
-              << (useLanczosScaling_ ? "Lanczos-3" : "Smooth mipmap") << "\n";
+    scalingMode_ = static_cast<ui::ScalingMode>(
+        (static_cast<uint8_t>(scalingMode_) + 1) % 3);
+    const char* modeName = scalingMode_ == ui::ScalingMode::None ? "None"
+        : scalingMode_ == ui::ScalingMode::Smooth ? "Smooth" : "Lanczos-3";
+    std::cout << "[CapApp] Scaling filter -> " << modeName << "\n";
 }
 
 void CapApplication::cycle_capture_compression(int direction) noexcept {
@@ -670,7 +664,7 @@ void CapApplication::take_snapshot() noexcept {
 }
 
 void CapApplication::select_home_option(int option) noexcept {
-    constexpr int optionCount = 11;
+    constexpr int optionCount = 10;
     selectedHomeOption_ = (option % optionCount + optionCount) % optionCount;
     optionPanelOpen_ = false;
 }
@@ -718,31 +712,27 @@ std::vector<std::wstring> CapApplication::home_option_choices(int option) const 
             }
             break;
         case 4:
-            choices = {L"Passthrough (Direct)", L"CRT Scanlines",
-                       L"Sharpening", L"High Contrast"};
+            choices = {L"None", L"Smooth", L"Lanczos-3"};
             break;
         case 5:
-            choices = {L"Smooth", L"Lanczos-3"};
-            break;
-        case 6:
             for (const auto& device : audioEngine_->input_devices()) {
                 choices.push_back(device.name);
             }
             break;
-        case 7:
+        case 6:
             for (const auto& device : audioEngine_->output_devices()) {
                 choices.push_back(device.name);
             }
             break;
-        case 8:
+        case 7:
             for (int volume = 0; volume <= 100; volume += 10) {
                 choices.push_back(std::to_wstring(volume) + L"%");
             }
             break;
-        case 9:
+        case 8:
             choices = {L"Unmuted", L"Muted"};
             break;
-        case 10:
+        case 9:
             choices = {L"Windowed", L"Fullscreen", L"Native size (fit screen)"};
             break;
     }
@@ -776,28 +766,26 @@ int CapApplication::current_option_choice(int option) const {
                 ? -1 : static_cast<int>(mode - device->supportedCompressions.begin());
         }
         case 4:
-            return static_cast<int>(activeFilter_);
-        case 5:
-            return useLanczosScaling_ ? 1 : 0;
-        case 6: {
+            return static_cast<int>(scalingMode_);
+        case 5: {
             const auto devices = audioEngine_->input_devices();
             const auto id = audioEngine_->selected_input_device_id();
             const auto device = std::find_if(devices.begin(), devices.end(),
                 [&id](const audio::AudioInputDevice& input) { return input.id == id; });
             return device == devices.end() ? -1 : static_cast<int>(device - devices.begin());
         }
-        case 7: {
+        case 6: {
             const auto devices = audioEngine_->output_devices();
             const auto id = audioEngine_->selected_output_device_id();
             const auto device = std::find_if(devices.begin(), devices.end(),
                 [&id](const audio::AudioInputDevice& output) { return output.id == id; });
             return device == devices.end() ? -1 : static_cast<int>(device - devices.begin());
         }
-        case 8:
+        case 7:
             return static_cast<int>(std::lround(audioEngine_->volume() * 10.0f));
-        case 9:
+        case 8:
             return audioEngine_->is_muted() ? 1 : 0;
-        case 10:
+        case 9:
             return window_->is_fullscreen() ? 1 : 0;
         default:
             return -1;
@@ -858,17 +846,14 @@ void CapApplication::apply_option_choice(int option, size_t choice) {
             break;
         }
         case 4:
-            activeFilter_ = static_cast<ui::FilterMode>(choice);
+            scalingMode_ = static_cast<ui::ScalingMode>(choice);
             break;
-        case 5:
-            useLanczosScaling_ = choice == 1;
-            break;
-        case 6: {
+        case 5: {
             const auto devices = audioEngine_->input_devices();
             if (choice < devices.size()) audioEngine_->select_input_device_id(devices[choice].id);
             break;
         }
-        case 7: {
+        case 6: {
             const auto devices = audioEngine_->output_devices();
             if (choice < devices.size() &&
                 !audioEngine_->select_output_device_id(devices[choice].id)) {
@@ -876,13 +861,13 @@ void CapApplication::apply_option_choice(int option, size_t choice) {
             }
             break;
         }
-        case 8:
+        case 7:
             audioEngine_->set_volume(static_cast<float>(choice) / 10.0f);
             break;
-        case 9:
+        case 8:
             audioEngine_->set_muted(choice == 1);
             break;
-        case 10:
+        case 9:
             if (choice == 2) {
                 uint32_t frameWidth = 0;
                 uint32_t frameHeight = 0;
@@ -1031,7 +1016,8 @@ void CapApplication::render_frame() {
                 lastFrame_, options_.showHud || showNegotiatedInfo_,
                 [this](HDC hudDc, int hudWidth, int hudHeight) {
                     render_hud(hudDc, hudWidth, hudHeight);
-                }, useLanczosScaling_)) {
+                }, scalingMode_ == ui::ScalingMode::Lanczos3,
+                scalingMode_ == ui::ScalingMode::None)) {
             return;
         }
         std::cerr << "[CapApp Warning] GPU presentation failed; switching to GDI fallback.\n";
@@ -1215,13 +1201,13 @@ void CapApplication::render_hud(HDC hdc, int width, int height) {
     };
     const auto resolution = cameraSelector_ ? cameraSelector_->active_resolution()
                                             : capture::ResolutionPreset{};
-    std::array<std::wstring, 11> values{
+    std::array<std::wstring, 10> values{
         activeCam ? widen(activeCam->name) : L"No camera",
         std::to_wstring(resolution.width) + L" x " + std::to_wstring(resolution.height),
         std::to_wstring(cameraSelector_ ? cameraSelector_->active_fps() : options_.targetFps) + L" FPS",
         widen(capture::capture_compression_name(captureCompression_)),
-        widen(std::string(ui::filter_mode_name(activeFilter_))),
-        useLanczosScaling_ ? L"Lanczos-3" : L"Smooth",
+        scalingMode_ == ui::ScalingMode::None ? L"None"
+            : scalingMode_ == ui::ScalingMode::Smooth ? L"Smooth" : L"Lanczos-3",
         audioEngine_->selected_input_device_name().empty()
             ? L"No audio input" : audioEngine_->selected_input_device_name(),
         audioEngine_->selected_output_device_name().empty()
@@ -1230,9 +1216,9 @@ void CapApplication::render_hud(HDC hdc, int width, int height) {
         audioEngine_->is_muted() ? L"Muted" : L"Unmuted",
         window_->is_fullscreen() ? L"Fullscreen" : L"Windowed"
     };
-    const std::array<const wchar_t*, 11> labels{
-        L"VIDEO INPUT", L"RESOLUTION", L"FRAME RATE", L"CAPTURE FORMAT", L"PICTURE FILTER",
-        L"SCALING", L"AUDIO INPUT", L"AUDIO OUTPUT", L"VOLUME", L"AUDIO MUTE", L"DISPLAY"
+    const std::array<const wchar_t*, 10> labels{
+        L"VIDEO INPUT", L"RESOLUTION", L"FRAME RATE", L"CAPTURE FORMAT", L"SCALING",
+        L"AUDIO INPUT", L"AUDIO OUTPUT", L"VOLUME", L"AUDIO MUTE", L"DISPLAY"
     };
     constexpr int rowTop = 100;
     constexpr int rowHeight = 40;
