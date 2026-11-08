@@ -23,6 +23,7 @@ BenchmarkResult LatencyBenchmark::run() {
     audioCfg.sampleRate = 48000;
     audioCfg.channels = 2;
     audioCfg.bufferFrameCount = 4;
+    audioCfg.enableDeviceCapture = false;
     audio::WasapiAudioEngine audioEngine(audioCfg);
     audioEngine.initialize();
     audioEngine.start();

@@ -30,6 +30,7 @@ if(WIN32)
         mfreadwrite
         ole32
         oleaut32
+        propsys
         setupapi
         cfgmgr32
         d3d11

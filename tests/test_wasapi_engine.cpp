@@ -5,29 +5,40 @@
 using namespace capapp;
 using namespace capapp::audio;
 
+namespace {
+WasapiConfig simulated_audio_config() {
+    WasapiConfig config{};
+    config.enableDeviceCapture = false;
+    return config;
+}
+}
+
 // Naming convention: {Device}::{Decoder}::When{Condition}
 TEST(CaptureDevice_Audio, WhenInitialized_BufferIs2To4Frames) {
     // Attempting to set buffer frame count outside [2, 4] must be clamped
     WasapiConfig largeConfig{};
     largeConfig.bufferFrameCount = 32;
+    largeConfig.enableDeviceCapture = false;
     WasapiAudioEngine largeEngine(largeConfig);
     EXPECT_LE(largeEngine.buffer_frame_count(), 4u);
     EXPECT_GE(largeEngine.buffer_frame_count(), 2u);
 
     WasapiConfig smallConfig{};
     smallConfig.bufferFrameCount = 1;
+    smallConfig.enableDeviceCapture = false;
     WasapiAudioEngine smallEngine(smallConfig);
     EXPECT_GE(smallEngine.buffer_frame_count(), 2u);
     EXPECT_LE(smallEngine.buffer_frame_count(), 4u);
 
     WasapiConfig normalConfig{};
     normalConfig.bufferFrameCount = 3;
+    normalConfig.enableDeviceCapture = false;
     WasapiAudioEngine normalEngine(normalConfig);
     EXPECT_EQ(normalEngine.buffer_frame_count(), 3u);
 }
 
 TEST(CaptureDevice_Audio, WhenAudioCaptured_TimestampsAreInNanoseconds) {
-    WasapiAudioEngine engine;
+    WasapiAudioEngine engine(simulated_audio_config());
     ASSERT_TRUE(engine.initialize());
     ASSERT_TRUE(engine.start());
     EXPECT_TRUE(engine.is_running());
@@ -54,7 +65,7 @@ TEST(CaptureDevice_Audio, WhenAudioCaptured_TimestampsAreInNanoseconds) {
 }
 
 TEST(CaptureDevice_Audio, WhenOverrunOccurs_DropsFramesWithoutCrashing) {
-    WasapiAudioEngine engine;
+    WasapiAudioEngine engine(simulated_audio_config());
     ASSERT_TRUE(engine.initialize());
     ASSERT_TRUE(engine.start());
 
@@ -80,7 +91,7 @@ TEST(CaptureDevice_Audio, WhenOverrunOccurs_DropsFramesWithoutCrashing) {
 }
 
 TEST(CaptureDevice_Audio, WhenRenderQueuePushed) {
-    WasapiAudioEngine engine;
+    WasapiAudioEngine engine(simulated_audio_config());
     ASSERT_TRUE(engine.initialize());
     ASSERT_TRUE(engine.start());
 
@@ -96,7 +107,7 @@ TEST(CaptureDevice_Audio, WhenRenderQueuePushed) {
 }
 
 TEST(CaptureDevice_Audio, WhenAudioCaptured_CalculatesPeakAndRmsMeters) {
-    WasapiAudioEngine engine;
+    WasapiAudioEngine engine(simulated_audio_config());
     ASSERT_TRUE(engine.initialize());
     ASSERT_TRUE(engine.start());
 
@@ -115,4 +126,41 @@ TEST(CaptureDevice_Audio, WhenAudioCaptured_CalculatesPeakAndRmsMeters) {
     engine.reset_meter();
     AudioMeterLevels resetMeter = engine.meter_levels();
     EXPECT_EQ(resetMeter.peakDbLeft, -60.0f);
+}
+
+TEST(CaptureDevice_Audio, WhenVolumeChanges_AppliesGainAndMuteToCapturedAudio) {
+    WasapiAudioEngine engine(simulated_audio_config());
+    ASSERT_TRUE(engine.initialize());
+    ASSERT_TRUE(engine.start());
+
+    engine.set_volume(0.5f);
+    std::vector<float> samples(4, 0.8f);
+    ASSERT_TRUE(engine.simulate_packet_capture(samples.data(), 2, 123));
+
+    AudioBuffer buffer{};
+    ASSERT_TRUE(engine.pop_captured_buffer(buffer));
+    const auto* output = reinterpret_cast<const float*>(buffer.data);
+    EXPECT_NEAR(output[0], 0.4f, 0.0001f);
+
+    engine.set_muted(true);
+    ASSERT_TRUE(engine.simulate_packet_capture(samples.data(), 2, 456));
+    ASSERT_TRUE(engine.pop_captured_buffer(buffer));
+    output = reinterpret_cast<const float*>(buffer.data);
+    EXPECT_NEAR(output[0], 0.0f, 0.0001f);
+    EXPECT_TRUE(engine.is_muted());
+}
+
+TEST(CaptureDevice_Audio, WhenCyclingInputDevices_RequiresAnotherAvailableDevice) {
+    WasapiAudioEngine engine(simulated_audio_config());
+    ASSERT_TRUE(engine.initialize());
+    ASSERT_TRUE(engine.start());
+    const auto devices = engine.input_devices();
+    EXPECT_EQ(engine.cycle_input_device(), devices.size() > 1);
+}
+
+TEST(CaptureDevice_Audio, WhenUsingSimulatedCapture_MonitoringReportsUnavailable) {
+    WasapiAudioEngine engine(simulated_audio_config());
+    ASSERT_TRUE(engine.initialize());
+    ASSERT_TRUE(engine.start());
+    EXPECT_FALSE(engine.monitoring_available());
 }

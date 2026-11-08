@@ -2,12 +2,19 @@
 
 #include <capapp/audio_buffer.hpp>
 #include <capapp/ring_buffer.hpp>
+#include <capapp/audio/volume_manager.hpp>
 #include <memory>
 #include <string>
 #include <atomic>
 #include <cstdint>
+#include <vector>
 
 namespace capapp::audio {
+
+struct AudioInputDevice {
+    std::wstring id;
+    std::wstring name;
+};
 
 struct WasapiConfig {
     uint32_t sampleRate{48000};
@@ -18,6 +25,7 @@ struct WasapiConfig {
     uint32_t bufferFrameCount{4};
     bool exclusiveMode{true};
     bool eventDriven{true};
+    bool enableDeviceCapture{true};
 };
 
 struct AudioStats {
@@ -47,7 +55,7 @@ public:
     WasapiAudioEngine& operator=(const WasapiAudioEngine&) = delete;
 
     /**
-     * @brief Initializes WASAPI audio client in exclusive low-latency event-driven mode.
+     * @brief Prepares shared-mode WASAPI capture and enumerates available inputs.
      */
     bool initialize();
 
@@ -84,6 +92,18 @@ public:
     [[nodiscard]] AudioMeterLevels meter_levels() const noexcept;
     void reset_meter() noexcept;
     [[nodiscard]] uint32_t buffer_frame_count() const noexcept;
+    [[nodiscard]] bool device_capture_available() const noexcept;
+    [[nodiscard]] std::string capture_error() const;
+    [[nodiscard]] bool monitoring_available() const noexcept;
+    [[nodiscard]] std::string monitoring_error() const;
+    bool refresh_input_devices();
+    [[nodiscard]] std::vector<AudioInputDevice> input_devices() const;
+    [[nodiscard]] std::wstring selected_input_device_name() const;
+    bool cycle_input_device();
+    void set_volume(float volume) noexcept;
+    [[nodiscard]] float volume() const noexcept;
+    void set_muted(bool muted) noexcept;
+    [[nodiscard]] bool is_muted() const noexcept;
     [[nodiscard]] static TimestampNs query_system_clock_ns() noexcept;
 
 private:

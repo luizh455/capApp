@@ -153,9 +153,12 @@ bool CapApplication::initialize() {
     audioCfg.sampleRate = 48000;
     audioCfg.channels = 2;
     audioCfg.bufferFrameCount = 4; // 2-4 frames per repository guidelines
+    audioCfg.exclusiveMode = false;
+    audioCfg.enableDeviceCapture = true;
     audioEngine_ = std::make_unique<audio::WasapiAudioEngine>(audioCfg);
-    audioEngine_->initialize();
-    audioEngine_->start();
+    if (!audioEngine_->initialize() || !audioEngine_->start()) {
+        std::cerr << "[CapApp Error] Failed to start the audio capture engine.\n";
+    }
 
     std::cout << "[CapApp] Enumerating video capture devices...\n";
     cameraSelector_ = std::make_unique<capture::CameraSelector>();
@@ -262,6 +265,19 @@ bool CapApplication::initialize() {
             toggle_scaling_filter();
         } else if (key == 'K' || key == 'k') {
             cycle_capture_compression();
+        } else if (key == VK_OEM_PLUS || key == VK_ADD) {
+            audioEngine_->set_volume(audioEngine_->volume() + 0.05f);
+        } else if (key == VK_OEM_MINUS || key == VK_SUBTRACT) {
+            audioEngine_->set_volume(audioEngine_->volume() - 0.05f);
+        } else if (key == 'M' || key == 'm') {
+            audioEngine_->set_muted(!audioEngine_->is_muted());
+        } else if (key == 'I' || key == 'i') {
+            if (audioEngine_->cycle_input_device()) {
+                std::wcout << L"[CapApp] Audio input -> "
+                           << audioEngine_->selected_input_device_name() << L"\n";
+            } else {
+                std::cerr << "[CapApp Warning] No other active audio input is available.\n";
+            }
         }
     };
 
@@ -353,11 +369,18 @@ int CapApplication::run() {
     uint64_t renderCallsInInterval = 0;
     double captureTimeInIntervalMs = 0.0;
     double renderTimeInIntervalMs = 0.0;
-
-    std::vector<float> dummyAudio(480 * 2, 0.0f);
+    bool audioCaptureWarningLogged = false;
 
     while (!window_->should_close()) {
         window_->poll_events();
+
+        if (!audioCaptureWarningLogged && !audioEngine_->device_capture_available()) {
+            const std::string captureError = audioEngine_->capture_error();
+            if (!captureError.empty()) {
+                std::cerr << "[CapApp Warning] " << captureError << "\n";
+                audioCaptureWarningLogged = true;
+            }
+        }
 
         if (!isPaused_) {
             Frame frame{};
@@ -387,12 +410,8 @@ int CapApplication::run() {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
 
-            // Simulate incoming WASAPI audio packet
-            TimestampNs nowNs = audio::WasapiAudioEngine::query_system_clock_ns();
-            audioEngine_->simulate_packet_capture(dummyAudio.data(), 480, nowNs);
-
             AudioBuffer audioBuf{};
-            if (audioEngine_->pop_captured_buffer(audioBuf)) {
+            while (audioEngine_->pop_captured_buffer(audioBuf)) {
                 avSync_->push_audio_buffer(audioBuf);
             }
 
@@ -406,6 +425,9 @@ int CapApplication::run() {
                 std::chrono::steady_clock::now() - renderStart).count();
             ++renderCallsInInterval;
             frameCount_++;
+        } else {
+            AudioBuffer discardedAudio{};
+            while (audioEngine_->pop_captured_buffer(discardedAudio)) {}
         }
 
         // FPS calculation every 500ms
@@ -667,13 +689,33 @@ void CapApplication::render_hud(HDC hdc, int width, int height) {
     for (char c : filterName) ss << static_cast<wchar_t>(c);
     ss << L"\n";
 
-    ss << L"WASAPI Peak/RMS  : L:" << std::setprecision(1) << audioMeter.peakDbLeft << L"dB | R:" << audioMeter.peakDbRight << L"dB\n";
+    const auto audioDevices = audioEngine_->input_devices();
+    ss << L"Audio Input      : ";
+    if (audioEngine_->selected_input_device_name().empty()) {
+        ss << L"No input selected";
+    } else {
+        ss << audioEngine_->selected_input_device_name();
+    }
+    ss << L" (" << audioDevices.size() << L" available)"
+       << (audioEngine_->device_capture_available() ? L" [READY]" : L" [UNAVAILABLE]") << L"\n";
+    ss << L"Audio Monitor    : "
+       << (audioEngine_->monitoring_available() ? L"[PLAYING TO DEFAULT OUTPUT]" : L"[UNAVAILABLE]") << L"\n";
+    if (!audioEngine_->monitoring_available() && !audioEngine_->monitoring_error().empty()) {
+        ss << L"Monitor Error    : " << widen(audioEngine_->monitoring_error()) << L"\n";
+    }
+    ss << L"Audio Peak/RMS   : L:" << std::setprecision(1) << audioMeter.peakDbLeft << L"dB | R:" << audioMeter.peakDbRight
+       << L" | Volume " << std::setprecision(0) << (audioEngine_->volume() * 100.0f) << L"%"
+       << (audioEngine_->is_muted() ? L" [MUTED]" : L"") << L"\n";
+    if (!audioEngine_->device_capture_available()) {
+        ss << L"Audio Capture    : " << widen(audioEngine_->capture_error().empty()
+            ? "Starting default input..." : audioEngine_->capture_error()) << L"\n";
+    }
     ss << L"Snapshots Saved  : " << recStats.totalSnapshotsSaved << L" frames\n";
     ss << L"Vulkan GPU       : " << (devInfo.properties.deviceName[0] ? L"Discrete GPU" : L"Direct Native")
        << (window_->is_fullscreen() ? L" [Exclusive Fullscreen]" : L" [Windowed]") << L"\n";
     ss << L"Status           : " << (isPaused_ ? L"[PAUSED]" : L"[LIVE STREAMING]") << L"\n";
     ss << L"--------------------------------------------------\n";
-    ss << L"Keys: [C] Cam | [R] Res | [P] FPS | [K] Format | [F] FX | [S] Snap | [Tab] HUD";
+    ss << L"Keys: [C] Cam | [R] Res | [P] FPS | [K] Format | [F] FX | [S] Snap | [I] Cycle Audio Input | [+/-] Volume | [M] Mute | [Tab] HUD";
 
     std::wstring line;
     int yOffset = 70;
