@@ -15,7 +15,15 @@ TEST(CaptureDevice_Camera, WhenDevicesEnumerated) {
         EXPECT_GT(devices[i].width, 0u);
         EXPECT_GT(devices[i].height, 0u);
         EXPECT_GT(devices[i].maxFps, 0u);
+        ASSERT_FALSE(devices[i].supportedCompressions.empty());
+        EXPECT_EQ(devices[i].supportedCompressions.front(), CaptureCompression::Auto);
     }
+}
+
+TEST(CaptureDevice_Camera, WhenCompressionNameRequested_ReturnsReadableNames) {
+    EXPECT_EQ(std::string(capture_compression_name(CaptureCompression::Auto)), "Auto");
+    EXPECT_EQ(std::string(capture_compression_name(CaptureCompression::YUY2)), "YUY2");
+    EXPECT_EQ(std::string(capture_compression_name(CaptureCompression::MJPEG)), "MJPEG");
 }
 
 TEST(CaptureDevice_Camera, WhenDeviceSelectedByIndex) {

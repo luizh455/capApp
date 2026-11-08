@@ -48,6 +48,8 @@ public:
     void cycle_resolution() noexcept;
     void cycle_fps() noexcept;
     void cycle_filter() noexcept;
+    void toggle_scaling_filter() noexcept;
+    void cycle_capture_compression() noexcept;
     void take_snapshot() noexcept;
 
 private:
@@ -81,9 +83,14 @@ private:
     bool stopCaptureReconfiguration_{false};
 
     ui::FilterMode activeFilter_{ui::FilterMode::Passthrough};
+    bool useLanczosScaling_{true};
+    capture::CaptureCompression captureCompression_{capture::CaptureCompression::Auto};
     bool isPaused_{false};
     uint64_t frameCount_{0};
     double currentFps_{60.0};
+    double captureAcquireMs_{0.0};
+    double renderFrameMs_{0.0};
+    capture::CaptureStreamInfo captureStreamInfo_{};
     TimestampNs lastFpsUpdateNs_{0};
     Frame lastFrame_{}; // most-recently captured raw frame for rendering
 

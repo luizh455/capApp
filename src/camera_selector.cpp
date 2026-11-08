@@ -7,12 +7,77 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <objbase.h>
 #include <mfapi.h>
 #include <mfidl.h>
 #include <mfreadwrite.h>
 #endif
 
 namespace capapp::capture {
+
+#if defined(_WIN32)
+static bool detect_capture_compressions(IMFActivate* activation,
+                                        std::vector<CaptureCompression>& modes) {
+    modes = {CaptureCompression::Auto};
+    IMFMediaSource* source = nullptr;
+    HRESULT hr = activation->ActivateObject(IID_PPV_ARGS(&source));
+    if (FAILED(hr) || !source) return false;
+
+    IMFPresentationDescriptor* presentation = nullptr;
+    hr = source->CreatePresentationDescriptor(&presentation);
+    bool inspected = false;
+    if (SUCCEEDED(hr) && presentation) {
+        DWORD streamCount = 0;
+        if (SUCCEEDED(presentation->GetStreamDescriptorCount(&streamCount))) {
+            for (DWORD streamIndex = 0; streamIndex < streamCount; ++streamIndex) {
+                BOOL selected = FALSE;
+                IMFStreamDescriptor* stream = nullptr;
+                if (FAILED(presentation->GetStreamDescriptorByIndex(
+                        streamIndex, &selected, &stream)) || !stream) {
+                    continue;
+                }
+
+                IMFMediaTypeHandler* handler = nullptr;
+                if (SUCCEEDED(stream->GetMediaTypeHandler(&handler)) && handler) {
+                    DWORD typeCount = 0;
+                    if (SUCCEEDED(handler->GetMediaTypeCount(&typeCount))) {
+                        inspected = true;
+                        for (DWORD typeIndex = 0; typeIndex < typeCount; ++typeIndex) {
+                            IMFMediaType* type = nullptr;
+                            if (FAILED(handler->GetMediaTypeByIndex(typeIndex, &type)) || !type) {
+                                continue;
+                            }
+                            GUID majorType{};
+                            GUID subtype{};
+                            if (SUCCEEDED(type->GetGUID(MF_MT_MAJOR_TYPE, &majorType)) &&
+                                majorType == MFMediaType_Video &&
+                                SUCCEEDED(type->GetGUID(MF_MT_SUBTYPE, &subtype))) {
+                                CaptureCompression compression = CaptureCompression::Auto;
+                                if (subtype == MFVideoFormat_YUY2) {
+                                    compression = CaptureCompression::YUY2;
+                                } else if (subtype == MFVideoFormat_MJPG) {
+                                    compression = CaptureCompression::MJPEG;
+                                }
+                                if (compression != CaptureCompression::Auto &&
+                                    std::find(modes.begin(), modes.end(), compression) == modes.end()) {
+                                    modes.push_back(compression);
+                                }
+                            }
+                            type->Release();
+                        }
+                    }
+                    handler->Release();
+                }
+                stream->Release();
+            }
+        }
+        presentation->Release();
+    }
+    source->Shutdown();
+    source->Release();
+    return inspected;
+}
+#endif
 
 CameraSelector::CameraSelector() {
     refresh_devices();
@@ -24,6 +89,13 @@ std::vector<CameraDeviceInfo> CameraSelector::enumerate_devices() {
     std::vector<CameraDeviceInfo> result;
 
 #if defined(_WIN32)
+    const HRESULT comHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    const bool uninitializeCom = SUCCEEDED(comHr);
+    if (FAILED(comHr) && comHr != RPC_E_CHANGED_MODE) {
+        std::cerr << "[CameraSelector Warning] COM initialization failed: 0x"
+                  << std::hex << comHr << std::dec
+                  << "; capture format detection may be incomplete.\n";
+    }
     HRESULT hr = MFStartup(MF_VERSION);
     if (SUCCEEDED(hr)) {
         IMFAttributes* pAttributes = nullptr;
@@ -85,6 +157,16 @@ std::vector<CameraDeviceInfo> CameraSelector::enumerate_devices() {
                         info.height = 1080;
                         info.maxFps = 60;
                         info.preferredFormat = PixelFormat::BGRA8;
+                        if (!detect_capture_compressions(ppDevices[i], info.supportedCompressions)) {
+                            info.supportedCompressions = {
+                                CaptureCompression::Auto,
+                                CaptureCompression::YUY2,
+                                CaptureCompression::MJPEG
+                            };
+                            std::cerr << "[CameraSelector Warning] Could not inspect capture "
+                                         "formats for " << info.name
+                                      << "; enabling YUY2 and MJPEG requests as fallbacks.\n";
+                        }
 
                         result.push_back(info);
                         ppDevices[i]->Release();
@@ -95,6 +177,9 @@ std::vector<CameraDeviceInfo> CameraSelector::enumerate_devices() {
             pAttributes->Release();
         }
         MFShutdown();
+    }
+    if (uninitializeCom) {
+        CoUninitialize();
     }
 #endif
 

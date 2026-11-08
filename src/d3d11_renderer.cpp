@@ -6,8 +6,10 @@
 #include <dxgi.h>
 #include <wrl/client.h>
 #include <algorithm>
+#include <array>
 #include <iostream>
 #include <cstring>
+#include <utility>
 
 namespace capapp::ui {
 namespace {
@@ -15,7 +17,8 @@ namespace {
 using Microsoft::WRL::ComPtr;
 
 constexpr uint32_t kHudSurfaceWidth = 600;
-constexpr uint32_t kHudSurfaceHeight = 400;
+constexpr uint32_t kHudSurfaceHeight = 560;
+constexpr size_t kVideoTextureCount = 3;
 
 constexpr char kVertexShader[] = R"(
 struct VSOutput {
@@ -36,8 +39,47 @@ constexpr char kVideoPixelShader[] = R"(
 Texture2D videoTexture : register(t0);
 SamplerState videoSampler : register(s0);
 
+cbuffer ScaleParams : register(b0) {
+    float2 sourceSize;
+    float2 outputSize;
+    uint horizontalPass;
+    uint clampOutput;
+    float2 padding;
+};
+
+float sinc(float value) {
+    if (abs(value) < 0.00001) return 1.0;
+    float angle = 3.14159265359 * value;
+    return sin(angle) / angle;
+}
+
 float4 main(float4 position : SV_Position, float2 texCoord : TEXCOORD0) : SV_Target {
-    return videoTexture.Sample(videoSampler, texCoord);
+    float sourceAxis = horizontalPass != 0 ? sourceSize.x : sourceSize.y;
+    float outputAxis = horizontalPass != 0 ? outputSize.x : outputSize.y;
+    float coordinate = horizontalPass != 0 ? texCoord.x : texCoord.y;
+    float center = coordinate * sourceAxis - 0.5;
+    float scale = max(sourceAxis / outputAxis, 1.0);
+    float support = 3.0 * scale;
+    int firstSample = (int)ceil(center - support);
+    int lastSample = (int)floor(center + support);
+    float4 color = 0.0;
+    float totalWeight = 0.0;
+
+    [loop]
+    for (int sampleIndex = firstSample; sampleIndex <= lastSample; ++sampleIndex) {
+        float distance = (center - sampleIndex) / scale;
+        float weight = sinc(distance) * sinc(distance / 3.0);
+        float samplePosition =
+            (clamp(float(sampleIndex), 0.0, sourceAxis - 1.0) + 0.5) / sourceAxis;
+        float2 sampleCoord = texCoord;
+        if (horizontalPass != 0) sampleCoord.x = samplePosition;
+        else sampleCoord.y = samplePosition;
+        color += videoTexture.SampleLevel(videoSampler, sampleCoord, 0.0) * weight;
+        totalWeight += weight;
+    }
+
+    color /= max(totalWeight, 0.00001);
+    return clampOutput != 0 ? saturate(color) : color;
 }
 )";
 
@@ -82,8 +124,15 @@ struct D3D11Renderer::Impl {
     ComPtr<ID3D11PixelShader> videoPixelShader;
     ComPtr<ID3D11PixelShader> hudPixelShader;
     ComPtr<ID3D11SamplerState> sampler;
-    ComPtr<ID3D11Texture2D> videoTexture;
-    ComPtr<ID3D11ShaderResourceView> videoView;
+    ComPtr<ID3D11Buffer> scaleParamsBuffer;
+    std::array<ComPtr<ID3D11Texture2D>, kVideoTextureCount> videoTextures;
+    std::array<ComPtr<ID3D11ShaderResourceView>, kVideoTextureCount> videoViews;
+    size_t videoTextureIndex{0};
+    ComPtr<ID3D11Texture2D> scaleIntermediate;
+    ComPtr<ID3D11RenderTargetView> scaleIntermediateTarget;
+    ComPtr<ID3D11ShaderResourceView> scaleIntermediateView;
+    uint32_t intermediateWidth{0};
+    uint32_t intermediateHeight{0};
     ComPtr<ID3D11Texture2D> hudTexture;
     ComPtr<ID3D11ShaderResourceView> hudView;
     HDC hudDc{nullptr};
@@ -124,25 +173,83 @@ struct D3D11Renderer::Impl {
     }
 
     bool create_video_texture(uint32_t width, uint32_t height) {
-        videoView.Reset();
-        videoTexture.Reset();
+        D3D11_TEXTURE2D_DESC desc{};
+        desc.Width = width;
+        desc.Height = height;
+        desc.MipLevels = 0;
+        desc.ArraySize = 1;
+        desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+        desc.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
+        std::array<ComPtr<ID3D11Texture2D>, kVideoTextureCount> textures;
+        std::array<ComPtr<ID3D11ShaderResourceView>, kVideoTextureCount> views;
+        for (size_t i = 0; i < kVideoTextureCount; ++i) {
+            if (FAILED(device->CreateTexture2D(&desc, nullptr, &textures[i])) ||
+                FAILED(device->CreateShaderResourceView(textures[i].Get(), nullptr, &views[i]))) {
+                std::cerr << "[D3D11] Failed to allocate capture upload textures.\n";
+                return false;
+            }
+        }
+        videoTextures = std::move(textures);
+        videoViews = std::move(views);
+        videoTextureIndex = 0;
+        videoWidth = width;
+        videoHeight = height;
+        return true;
+    }
+
+    bool create_scale_intermediate(uint32_t width, uint32_t height) {
+        if (width == intermediateWidth && height == intermediateHeight) return true;
+        ComPtr<ID3D11Texture2D> texture;
+        ComPtr<ID3D11RenderTargetView> target;
+        ComPtr<ID3D11ShaderResourceView> view;
         D3D11_TEXTURE2D_DESC desc{};
         desc.Width = width;
         desc.Height = height;
         desc.MipLevels = 1;
         desc.ArraySize = 1;
-        desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
         desc.SampleDesc.Count = 1;
-        desc.Usage = D3D11_USAGE_DYNAMIC;
-        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-        desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-        if (FAILED(device->CreateTexture2D(&desc, nullptr, &videoTexture)) ||
-            FAILED(device->CreateShaderResourceView(videoTexture.Get(), nullptr, &videoView))) {
-            std::cerr << "[D3D11] Failed to allocate the capture texture.\n";
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+        if (FAILED(device->CreateTexture2D(&desc, nullptr, &texture)) ||
+            FAILED(device->CreateRenderTargetView(texture.Get(), nullptr, &target)) ||
+            FAILED(device->CreateShaderResourceView(texture.Get(), nullptr, &view))) {
+            std::cerr << "[D3D11] Failed to create the Lanczos scaling intermediate.\n";
             return false;
         }
-        videoWidth = width;
-        videoHeight = height;
+        scaleIntermediate = std::move(texture);
+        scaleIntermediateTarget = std::move(target);
+        scaleIntermediateView = std::move(view);
+        intermediateWidth = width;
+        intermediateHeight = height;
+        return true;
+    }
+
+    bool set_scale_params(uint32_t sourceWidth, uint32_t sourceHeight,
+                          uint32_t outputWidth, uint32_t outputHeight,
+                          bool horizontal, bool clampOutput) {
+        struct ScaleParams {
+            float sourceWidth;
+            float sourceHeight;
+            float outputWidth;
+            float outputHeight;
+            uint32_t horizontal;
+            uint32_t clampOutput;
+            float padding[2]{};
+        } params{
+            static_cast<float>(sourceWidth), static_cast<float>(sourceHeight),
+            static_cast<float>(outputWidth), static_cast<float>(outputHeight),
+            horizontal ? 1u : 0u, clampOutput ? 1u : 0u
+        };
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        if (FAILED(context->Map(scaleParamsBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD,
+                                0, &mapped))) return false;
+        std::memcpy(mapped.pData, &params, sizeof(params));
+        context->Unmap(scaleParamsBuffer.Get(), 0);
+        context->PSSetConstantBuffers(0, 1, scaleParamsBuffer.GetAddressOf());
         return true;
     }
 
@@ -213,6 +320,12 @@ struct D3D11Renderer::Impl {
         }
         context->Unmap(texture, 0);
         return true;
+    }
+
+    void upload_video_texture(ID3D11Texture2D* texture, ID3D11ShaderResourceView* view,
+                              const uint8_t* pixels, uint32_t sourceStride) {
+        context->UpdateSubresource(texture, 0, nullptr, pixels, sourceStride, 0);
+        context->GenerateMips(view);
     }
 };
 
@@ -286,11 +399,23 @@ bool D3D11Renderer::initialize(HWND window) {
         return false;
     }
 
+    D3D11_BUFFER_DESC scaleParamsDesc{};
+    scaleParamsDesc.ByteWidth = 32;
+    scaleParamsDesc.Usage = D3D11_USAGE_DYNAMIC;
+    scaleParamsDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    scaleParamsDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    if (FAILED(impl_->device->CreateBuffer(&scaleParamsDesc, nullptr,
+                                            &impl_->scaleParamsBuffer))) {
+        std::cerr << "[D3D11] Failed to create the Lanczos scaling parameters.\n";
+        return false;
+    }
+
     D3D11_SAMPLER_DESC samplerDesc{};
-    samplerDesc.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
+    samplerDesc.Filter = D3D11_FILTER_ANISOTROPIC;
     samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
     samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
     samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+    samplerDesc.MaxAnisotropy = 16;
     samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
     if (FAILED(impl_->device->CreateSamplerState(&samplerDesc, &impl_->sampler))) return false;
 
@@ -305,7 +430,8 @@ bool D3D11Renderer::initialize(HWND window) {
 }
 
 bool D3D11Renderer::render(const Frame& frame, bool showHud,
-                           const std::function<void(HDC, int, int)>& drawHud) {
+                           const std::function<void(HDC, int, int)>& drawHud,
+                           bool useLanczos) {
     if (!impl_->device || !impl_->window) return false;
     RECT rect{};
     GetClientRect(impl_->window, &rect);
@@ -332,9 +458,11 @@ bool D3D11Renderer::render(const Frame& frame, bool showHud,
             std::cerr << "[D3D11] Capture frame buffer is smaller than its declared dimensions.\n";
             return false;
         }
-        if (!impl_->upload_texture(impl_->videoTexture.Get(), frame.data, frame.width, frame.height, stride)) {
-            return false;
-        }
+        impl_->videoTextureIndex = (impl_->videoTextureIndex + 1) % kVideoTextureCount;
+        impl_->upload_video_texture(
+            impl_->videoTextures[impl_->videoTextureIndex].Get(),
+            impl_->videoViews[impl_->videoTextureIndex].Get(),
+            frame.data, stride);
     }
 
     if (showHud) {
@@ -368,7 +496,7 @@ bool D3D11Renderer::render(const Frame& frame, bool showHud,
     impl_->context->VSSetShader(impl_->vertexShader.Get(), nullptr, 0);
     impl_->context->PSSetSamplers(0, 1, impl_->sampler.GetAddressOf());
 
-    if (frame.data && impl_->videoView) {
+    if (frame.data && impl_->videoViews[impl_->videoTextureIndex]) {
         uint32_t videoViewWidth = width;
         uint32_t videoViewHeight = height;
         if (static_cast<uint64_t>(width) * frame.height >
@@ -387,12 +515,46 @@ bool D3D11Renderer::render(const Frame& frame, bool showHud,
         videoViewport.Width = static_cast<float>(videoViewWidth);
         videoViewport.Height = static_cast<float>(videoViewHeight);
         videoViewport.MaxDepth = 1.0f;
-        impl_->context->RSSetViewports(1, &videoViewport);
         impl_->context->PSSetShader(impl_->videoPixelShader.Get(), nullptr, 0);
-        impl_->context->PSSetShaderResources(0, 1, impl_->videoView.GetAddressOf());
-        impl_->context->Draw(3, 0);
         ID3D11ShaderResourceView* nullView = nullptr;
-        impl_->context->PSSetShaderResources(0, 1, &nullView);
+        if (useLanczos) {
+            if (!impl_->create_scale_intermediate(videoViewWidth, frame.height)) return false;
+            if (!impl_->set_scale_params(frame.width, frame.height,
+                                         videoViewWidth, frame.height, true, false)) {
+                std::cerr << "[D3D11] Failed to map Lanczos horizontal pass parameters.\n";
+                return false;
+            }
+            D3D11_VIEWPORT horizontalViewport{};
+            horizontalViewport.Width = static_cast<float>(videoViewWidth);
+            horizontalViewport.Height = static_cast<float>(frame.height);
+            horizontalViewport.MaxDepth = 1.0f;
+            impl_->context->OMSetRenderTargets(
+                1, impl_->scaleIntermediateTarget.GetAddressOf(), nullptr);
+            impl_->context->RSSetViewports(1, &horizontalViewport);
+            impl_->context->PSSetShaderResources(
+                0, 1, impl_->videoViews[impl_->videoTextureIndex].GetAddressOf());
+            impl_->context->Draw(3, 0);
+            impl_->context->PSSetShaderResources(0, 1, &nullView);
+
+            impl_->context->OMSetRenderTargets(1, impl_->renderTarget.GetAddressOf(), nullptr);
+            impl_->context->RSSetViewports(1, &videoViewport);
+            if (!impl_->set_scale_params(videoViewWidth, frame.height,
+                                         videoViewWidth, videoViewHeight, false, true)) {
+                std::cerr << "[D3D11] Failed to map Lanczos vertical pass parameters.\n";
+                return false;
+            }
+            impl_->context->PSSetShaderResources(
+                0, 1, impl_->scaleIntermediateView.GetAddressOf());
+            impl_->context->Draw(3, 0);
+            impl_->context->PSSetShaderResources(0, 1, &nullView);
+        } else {
+            impl_->context->OMSetRenderTargets(1, impl_->renderTarget.GetAddressOf(), nullptr);
+            impl_->context->RSSetViewports(1, &videoViewport);
+            impl_->context->PSSetShaderResources(
+                0, 1, impl_->videoViews[impl_->videoTextureIndex].GetAddressOf());
+            impl_->context->Draw(3, 0);
+            impl_->context->PSSetShaderResources(0, 1, &nullView);
+        }
     }
 
     if (showHud && impl_->hudView) {

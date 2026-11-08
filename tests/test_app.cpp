@@ -74,6 +74,7 @@ TEST(CaptureUI_D3D11Renderer, WhenFramePresented_HandlesResizeAndHud) {
         hudDrawn = width >= 540 && height >= 370;
     }));
     EXPECT_TRUE(hudDrawn);
+    EXPECT_TRUE(renderer.render(frame, false, {}, true));
 
     SetWindowPos(win.hwnd(), nullptr, 0, 0, 1000, 800,
                  SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);

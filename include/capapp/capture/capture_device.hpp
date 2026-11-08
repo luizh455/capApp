@@ -6,11 +6,28 @@
 
 namespace capapp::capture {
 
+enum class CaptureCompression : uint8_t {
+    Auto = 0,
+    YUY2,
+    MJPEG
+};
+
+[[nodiscard]] constexpr const char* capture_compression_name(
+    CaptureCompression compression) noexcept {
+    switch (compression) {
+        case CaptureCompression::YUY2: return "YUY2";
+        case CaptureCompression::MJPEG: return "MJPEG";
+        case CaptureCompression::Auto:
+        default: return "Auto";
+    }
+}
+
 struct CaptureDeviceConfig {
     uint32_t targetWidth{1920};
     uint32_t targetHeight{1080};
     uint32_t targetFps{60};
     PixelFormat preferredFormat{PixelFormat::BGRA8};
+    CaptureCompression compression{CaptureCompression::Auto};
     bool enableZeroCopy{true};
     std::string deviceName{"Default Capture Device"};
 };
@@ -20,6 +37,18 @@ struct CaptureDeviceStats {
     uint64_t framesDropped{0};
     TimestampNs lastCaptureTimestampNs{0};
     double averageFps{0.0};
+};
+
+struct CaptureStreamInfo {
+    uint32_t sourceWidth{0};
+    uint32_t sourceHeight{0};
+    uint32_t sourceFps{0};
+    std::string sourceFormat{"Unknown"};
+    std::string outputFormat{"BGRA32"};
+    std::string usbLinkSpeed{"Unknown"};
+    uint32_t usbMaxMbps{0};
+    double nominalInputMbps{0.0};
+    bool nominalInputBandwidthKnown{false};
 };
 
 class ICaptureDevice {
@@ -38,6 +67,7 @@ public:
     virtual void release_frame(Frame& frame) noexcept = 0;
 
     virtual CaptureDeviceStats stats() const noexcept = 0;
+    virtual CaptureStreamInfo stream_info() const { return {}; }
 };
 
 } // namespace capapp::capture

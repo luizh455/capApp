@@ -23,6 +23,11 @@ int main(int argc, char* argv[]) {
                 std::cout << "  [" << dev.index << "] " << dev.name
                           << " (" << dev.width << "x" << dev.height << " @" << dev.maxFps << " FPS)"
                           << (dev.isVirtual ? " [Virtual]" : "") << "\n";
+                std::cout << "      Capture formats:";
+                for (const auto compression : dev.supportedCompressions) {
+                    std::cout << " " << capapp::capture::capture_compression_name(compression);
+                }
+                std::cout << "\n";
             }
             std::cout << "\nTo start with a specific device: capapp.exe --device <index_or_name>\n";
             return 0;
@@ -72,6 +77,8 @@ int main(int argc, char* argv[]) {
             std::cout << "  C     - Cycle through Camera Inputs\n";
             std::cout << "  R     - Cycle Target Resolution (1080p -> 1440p -> 4K)\n";
             std::cout << "  P     - Cycle Target FPS (30 FPS <-> 60 FPS)\n";
+            std::cout << "  K     - Cycle Capture Format (Auto, YUY2, MJPEG)\n";
+            std::cout << "  L     - Toggle Scaling Filter (Smooth / Lanczos-3)\n";
             std::cout << "  F     - Cycle Post-Processing Shader FX (Scanlines, Sharpen, Contrast)\n";
             std::cout << "  S     - Take High-Res Frame Snapshot\n";
             std::cout << "  F11   - Toggle Exclusive Fullscreen / Windowed\n";

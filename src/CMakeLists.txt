@@ -30,6 +30,8 @@ if(WIN32)
         mfreadwrite
         ole32
         oleaut32
+        setupapi
+        cfgmgr32
         d3d11
         dxgi
         d3dcompiler

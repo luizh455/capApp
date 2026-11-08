@@ -27,7 +27,8 @@ public:
 #if defined(_WIN32)
     bool initialize(HWND window);
     bool render(const Frame& frame, bool showHud,
-                const std::function<void(HDC, int, int)>& drawHud);
+                const std::function<void(HDC, int, int)>& drawHud,
+                bool useLanczos = false);
 #endif
 
 private:

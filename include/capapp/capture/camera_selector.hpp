@@ -1,6 +1,7 @@
 #pragma once
 
 #include <capapp/frame.hpp>
+#include <capapp/capture/capture_device.hpp>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -24,6 +25,9 @@ struct CameraDeviceInfo {
     uint32_t height{1080};
     uint32_t maxFps{60};
     PixelFormat preferredFormat{PixelFormat::BGRA8};
+    std::vector<CaptureCompression> supportedCompressions{
+        CaptureCompression::Auto, CaptureCompression::YUY2, CaptureCompression::MJPEG
+    };
     bool isVirtual{false};
 };
 

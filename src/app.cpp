@@ -5,6 +5,7 @@
 #include <vector>
 #include <sstream>
 #include <iomanip>
+#include <algorithm>
 
 #if defined(_WIN32)
 #include <objbase.h>
@@ -182,6 +183,7 @@ bool CapApplication::initialize() {
     capCfg.targetHeight = initialCam ? initialCam->height : 1080;
     capCfg.targetFps = cameraSelector_->active_fps();
     capCfg.preferredFormat = initialCam ? initialCam->preferredFormat : PixelFormat::BGRA8;
+    capCfg.compression = captureCompression_;
     capCfg.deviceName = initialCam ? initialCam->name : "Default Device";
     capCfg.enableZeroCopy = true;
 
@@ -195,6 +197,7 @@ bool CapApplication::initialize() {
             return false;
         }
     }
+    captureStreamInfo_ = captureDev_->stream_info();
 
     // Dynamic camera switching callback
     cameraSelector_->onDeviceChanged = [this](const capture::CameraDeviceInfo& newDev) {
@@ -204,6 +207,8 @@ bool CapApplication::initialize() {
         cfg.targetHeight = newDev.height;
         cfg.targetFps = cameraSelector_->active_fps();
         cfg.preferredFormat = newDev.preferredFormat;
+        captureCompression_ = capture::CaptureCompression::Auto;
+        cfg.compression = captureCompression_;
         cfg.deviceName = newDev.name;
         cfg.enableZeroCopy = true;
 
@@ -219,6 +224,7 @@ bool CapApplication::initialize() {
         cfg.targetHeight = height;
         cfg.targetFps = fps;
         cfg.preferredFormat = dev ? dev->preferredFormat : PixelFormat::BGRA8;
+        cfg.compression = captureCompression_;
         cfg.deviceName = dev ? dev->name : "Default";
         cfg.enableZeroCopy = true;
 
@@ -252,6 +258,10 @@ bool CapApplication::initialize() {
             cycle_filter();
         } else if (key == 'S' || key == 's') {
             take_snapshot();
+        } else if (key == 'L' || key == 'l') {
+            toggle_scaling_filter();
+        } else if (key == 'K' || key == 'k') {
+            cycle_capture_compression();
         }
     };
 
@@ -294,6 +304,40 @@ void CapApplication::cycle_filter() noexcept {
     std::cout << "[CapApp] Post-Processing Shader FX -> " << ui::filter_mode_name(activeFilter_) << "\n";
 }
 
+void CapApplication::toggle_scaling_filter() noexcept {
+    useLanczosScaling_ = !useLanczosScaling_;
+    std::cout << "[CapApp] Scaling filter -> "
+              << (useLanczosScaling_ ? "Lanczos-3" : "Smooth mipmap") << "\n";
+}
+
+void CapApplication::cycle_capture_compression() noexcept {
+    const auto* device = cameraSelector_ ? cameraSelector_->active_device() : nullptr;
+    if (!device || device->supportedCompressions.empty()) {
+        std::cerr << "[CapApp Warning] No capture compression modes are available.\n";
+        return;
+    }
+
+    const auto& modes = device->supportedCompressions;
+    const auto current = std::find(modes.begin(), modes.end(), captureCompression_);
+    const size_t nextIndex = current == modes.end()
+        ? 0
+        : (static_cast<size_t>(current - modes.begin()) + 1) % modes.size();
+    captureCompression_ = modes[nextIndex];
+
+    const auto resolution = cameraSelector_->active_resolution();
+    capture::CaptureDeviceConfig cfg{};
+    cfg.targetWidth = resolution.width;
+    cfg.targetHeight = resolution.height;
+    cfg.targetFps = cameraSelector_->active_fps();
+    cfg.preferredFormat = device->preferredFormat;
+    cfg.compression = captureCompression_;
+    cfg.deviceName = device->name;
+    cfg.enableZeroCopy = true;
+    queue_capture_reconfiguration({device->symbolicLink, std::move(cfg)});
+    std::cout << "[CapApp] Requested capture compression: "
+              << capture::capture_compression_name(captureCompression_) << "\n";
+}
+
 void CapApplication::take_snapshot() noexcept {
     std::lock_guard lock(lastFrameMutex_);
     if (frameRecorder_ && lastFrame_.data && lastFrame_.width > 0) {
@@ -305,6 +349,10 @@ void CapApplication::take_snapshot() noexcept {
 int CapApplication::run() {
     auto lastFrameTime = std::chrono::steady_clock::now();
     uint64_t framesInInterval = 0;
+    uint64_t captureCallsInInterval = 0;
+    uint64_t renderCallsInInterval = 0;
+    double captureTimeInIntervalMs = 0.0;
+    double renderTimeInIntervalMs = 0.0;
 
     std::vector<float> dummyAudio(480 * 2, 0.0f);
 
@@ -318,7 +366,12 @@ int CapApplication::run() {
                 std::unique_lock captureLock(captureDeviceMutex_, std::try_to_lock);
                 if (captureLock.owns_lock() &&
                     !captureReconfiguring_.load(std::memory_order_acquire)) {
+                    captureStreamInfo_ = captureDev_->stream_info();
+                    const auto captureStart = std::chrono::steady_clock::now();
                     hasFrame = captureDev_->acquire_frame(frame);
+                    captureTimeInIntervalMs += std::chrono::duration<double, std::milli>(
+                        std::chrono::steady_clock::now() - captureStart).count();
+                    ++captureCallsInInterval;
                     if (hasFrame) {
                         {
                             std::lock_guard frameLock(lastFrameMutex_);
@@ -347,7 +400,11 @@ int CapApplication::run() {
             AudioBuffer pairedAudio{};
             avSync_->get_synchronized_pair(pairedVideo, pairedAudio);
 
+            const auto renderStart = std::chrono::steady_clock::now();
             render_frame();
+            renderTimeInIntervalMs += std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - renderStart).count();
+            ++renderCallsInInterval;
             frameCount_++;
         }
 
@@ -356,7 +413,15 @@ int CapApplication::run() {
         auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastFrameTime).count();
         if (elapsedMs >= 500) {
             currentFps_ = (framesInInterval * 1000.0) / elapsedMs;
+            captureAcquireMs_ = captureCallsInInterval
+                ? captureTimeInIntervalMs / captureCallsInInterval : 0.0;
+            renderFrameMs_ = renderCallsInInterval
+                ? renderTimeInIntervalMs / renderCallsInInterval : 0.0;
             framesInInterval = 0;
+            captureCallsInInterval = 0;
+            renderCallsInInterval = 0;
+            captureTimeInIntervalMs = 0.0;
+            renderTimeInIntervalMs = 0.0;
             lastFrameTime = now;
         }
 
@@ -394,7 +459,7 @@ void CapApplication::render_frame() {
                 lastFrame_, options_.showHud,
                 [this](HDC hudDc, int hudWidth, int hudHeight) {
                     render_hud(hudDc, hudWidth, hudHeight);
-                })) {
+                }, useLanczosScaling_)) {
             return;
         }
         std::cerr << "[CapApp Warning] GPU presentation failed; switching to GDI fallback.\n";
@@ -514,7 +579,7 @@ void CapApplication::render_hud(HDC hdc, int width, int height) {
     (void)height;
 
     // HUD Card Background (Glassmorphic dark card)
-    RECT hudRect{20, 20, 540, 370};
+    RECT hudRect{20, 20, 580, 530};
     HBRUSH cardBrush = CreateSolidBrush(RGB(24, 30, 44));
     HPEN borderPen = CreatePen(PS_SOLID, 1, RGB(59, 130, 246)); // Vibrant blue
     HBRUSH oldBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, cardBrush));
@@ -550,6 +615,9 @@ void CapApplication::render_hud(HDC hdc, int width, int height) {
     auto recStats = frameRecorder_ ? frameRecorder_->stats() : capture::FrameRecorderStats{};
     const auto& devInfo = vulkanCtx_->selected_device_info();
     const auto* activeCam = cameraSelector_ ? cameraSelector_->active_device() : nullptr;
+    const auto widen = [](const std::string& value) {
+        return std::wstring(value.begin(), value.end());
+    };
 
     std::wstringstream ss;
     ss << L"Active Camera    : [" << (activeCam ? activeCam->index : 0) << L"] ";
@@ -563,6 +631,35 @@ void CapApplication::render_hud(HDC hdc, int width, int height) {
 
     ss << L"FPS / Frame Time : " << std::fixed << std::setprecision(1) << currentFps_ << L" FPS ("
        << std::setprecision(2) << (1000.0 / (currentFps_ > 0 ? currentFps_ : 60.0)) << L" ms)\n";
+    ss << L"Scaling Filter   : " << (useLanczosScaling_ ? L"Lanczos-3" : L"Smooth mipmap")
+       << L" [L toggles]\n";
+    ss << L"Capture Format   : " << capture::capture_compression_name(captureCompression_)
+       << L" [K cycles]\n";
+    ss << L"--- Negotiated Capture / USB ---\n";
+    ss << L"Source           : " << widen(captureStreamInfo_.sourceFormat) << L" "
+       << captureStreamInfo_.sourceWidth << L"x" << captureStreamInfo_.sourceHeight
+       << L" @" << captureStreamInfo_.sourceFps << L" FPS\n";
+    ss << L"Output           : " << widen(captureStreamInfo_.outputFormat) << L" (decoded)\n";
+    ss << L"USB Link         : " << widen(captureStreamInfo_.usbLinkSpeed);
+    if (captureStreamInfo_.usbMaxMbps == 0) {
+        ss << L" | speed unavailable\n";
+    } else if (captureStreamInfo_.usbLinkSpeed == "USB SuperSpeed+") {
+        ss << L" | capacity >= " << captureStreamInfo_.usbMaxMbps << L" Mbps\n";
+    } else {
+        ss << L" | max " << captureStreamInfo_.usbMaxMbps << L" Mbps theoretical\n";
+    }
+    ss << L"USB Payload      : ";
+    if (captureStreamInfo_.nominalInputBandwidthKnown) {
+        ss << std::setprecision(1) << captureStreamInfo_.nominalInputMbps
+           << L" Mbps nominal YUY2";
+    } else if (captureStreamInfo_.sourceFormat == "MJPEG") {
+        ss << L"compressed rate unavailable (Media Foundation)";
+    } else {
+        ss << L"unavailable";
+    }
+    ss << L"\n";
+    ss << L"Capture / Render : " << std::setprecision(2) << captureAcquireMs_
+       << L" / " << renderFrameMs_ << L" ms avg\n";
     ss << L"Glass-to-Glass   : ~8.3 ms (Ultra Low-Latency)\n";
     ss << L"A/V PTS Drift    : " << (syncStats.currentDriftNs / 1'000'000.0) << L" ms (Synchronized)\n";
     ss << L"Shader FX Filter : ";
@@ -576,7 +673,7 @@ void CapApplication::render_hud(HDC hdc, int width, int height) {
        << (window_->is_fullscreen() ? L" [Exclusive Fullscreen]" : L" [Windowed]") << L"\n";
     ss << L"Status           : " << (isPaused_ ? L"[PAUSED]" : L"[LIVE STREAMING]") << L"\n";
     ss << L"--------------------------------------------------\n";
-    ss << L"Keys: [C] Cam | [R] Res | [P] FPS | [F] FX | [S] Snap | [Tab] HUD";
+    ss << L"Keys: [C] Cam | [R] Res | [P] FPS | [K] Format | [F] FX | [S] Snap | [Tab] HUD";
 
     std::wstring line;
     int yOffset = 70;
