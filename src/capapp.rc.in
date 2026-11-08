@@ -1,0 +1,4 @@
+#include <windows.h>
+#include "capapp/ui/resource.h"
+
+IDI_CAPAPP ICON "@CAPAPP_ICON_PATH@"

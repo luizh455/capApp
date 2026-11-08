@@ -1,0 +1,6 @@
+#ifndef CAPAPP_UI_RESOURCE_H
+#define CAPAPP_UI_RESOURCE_H
+
+#define IDI_CAPAPP 101
+
+#endif

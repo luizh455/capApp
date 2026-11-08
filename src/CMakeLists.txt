@@ -47,6 +47,16 @@ add_executable(capapp
     main.cpp
 )
 
+if(WIN32)
+    set(CAPAPP_ICON_PATH "${PROJECT_SOURCE_DIR}/assets/icons/capapp.ico")
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/capapp.rc.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/capapp.rc"
+        @ONLY
+    )
+    target_sources(capapp PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/capapp.rc")
+endif()
+
 target_link_libraries(capapp PRIVATE
     capapp_core
 )

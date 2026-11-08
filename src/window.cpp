@@ -1,4 +1,5 @@
 #include <capapp/ui/window.hpp>
+#include <capapp/ui/resource.h>
 #include <algorithm>
 #include <iostream>
 
@@ -79,6 +80,8 @@ bool NativeWindow::create() {
     wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc = NativeWindow::window_proc;
     wc.hInstance = hInstance_;
+    wc.hIcon = LoadIconW(hInstance_, MAKEINTRESOURCEW(IDI_CAPAPP));
+    wc.hIconSm = wc.hIcon;
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.hbrBackground = reinterpret_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
     wc.lpszClassName = WINDOW_CLASS_NAME;
