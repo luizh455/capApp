@@ -133,6 +133,14 @@ bool CapApplication::initialize() {
         return false;
     }
 
+#if defined(_WIN32)
+    d3dRenderer_ = std::make_unique<ui::D3D11Renderer>();
+    if (!d3dRenderer_->initialize(window_->hwnd())) {
+        std::cerr << "[CapApp Warning] GPU renderer unavailable; using GDI fallback.\n";
+        d3dRenderer_.reset();
+    }
+#endif
+
     std::cout << "[CapApp] Initializing Vulkan context & GPU device...\n";
     vulkanCtx_ = std::make_unique<vulkan::VulkanContext>();
     if (!vulkanCtx_->initialize()) {
@@ -381,6 +389,18 @@ void CapApplication::render_frame() {
     if (width <= 0 || height <= 0) return;
 
     std::lock_guard frameLock(lastFrameMutex_);
+    if (d3dRenderer_) {
+        if (d3dRenderer_->render(
+                lastFrame_, options_.showHud,
+                [this](HDC hudDc, int hudWidth, int hudHeight) {
+                    render_hud(hudDc, hudWidth, hudHeight);
+                })) {
+            return;
+        }
+        std::cerr << "[CapApp Warning] GPU presentation failed; switching to GDI fallback.\n";
+        d3dRenderer_.reset();
+    }
+
     HDC hdc = GetDC(hwnd);
 
     // Recreate backbuffer on resize

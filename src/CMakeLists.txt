@@ -11,6 +11,7 @@ add_library(capapp_core
     color_converter.cpp
     frame_recorder.cpp
     window.cpp
+    d3d11_renderer.cpp
     app.cpp
     benchmark.cpp
 )
@@ -29,6 +30,9 @@ if(WIN32)
         mfreadwrite
         ole32
         oleaut32
+        d3d11
+        dxgi
+        d3dcompiler
     )
 endif()
 

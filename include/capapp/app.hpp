@@ -1,6 +1,7 @@
 #pragma once
 
 #include <capapp/ui/window.hpp>
+#include <capapp/ui/d3d11_renderer.hpp>
 #include <capapp/ui/post_processing.hpp>
 #include <capapp/vulkan/vulkan_context.hpp>
 #include <capapp/audio/wasapi_engine.hpp>
@@ -63,6 +64,7 @@ private:
 
     AppOptions options_;
     std::unique_ptr<ui::NativeWindow> window_;
+    std::unique_ptr<ui::D3D11Renderer> d3dRenderer_;
     std::unique_ptr<vulkan::VulkanContext> vulkanCtx_;
     std::unique_ptr<audio::WasapiAudioEngine> audioEngine_;
     std::unique_ptr<capture::ICaptureDevice> captureDev_;

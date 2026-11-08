@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include <capapp/ui/window.hpp>
+#include <capapp/ui/d3d11_renderer.hpp>
 #include <capapp/app.hpp>
+#include <vector>
 
 using namespace capapp;
 using namespace capapp::ui;
@@ -46,4 +48,34 @@ TEST(CaptureUI_App, WhenInitialized_RunsTelemetryPipeline) {
 
     CapApplication app(opts);
     EXPECT_TRUE(app.initialize());
+}
+
+TEST(CaptureUI_D3D11Renderer, WhenFramePresented_HandlesResizeAndHud) {
+    WindowConfig cfg{};
+    cfg.width = 640;
+    cfg.height = 480;
+    NativeWindow win(cfg);
+    ASSERT_TRUE(win.create());
+
+    ui::D3D11Renderer renderer;
+    ASSERT_TRUE(renderer.initialize(win.hwnd()));
+
+    std::vector<uint8_t> pixels(8 * 4 * 4, 0x7f);
+    Frame frame{};
+    frame.width = 8;
+    frame.height = 4;
+    frame.stride = 8 * 4;
+    frame.format = PixelFormat::BGRA8;
+    frame.data = pixels.data();
+    frame.dataSize = pixels.size();
+
+    bool hudDrawn = false;
+    EXPECT_TRUE(renderer.render(frame, true, [&hudDrawn](HDC, int width, int height) {
+        hudDrawn = width >= 540 && height >= 370;
+    }));
+    EXPECT_TRUE(hudDrawn);
+
+    SetWindowPos(win.hwnd(), nullptr, 0, 0, 1000, 800,
+                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    EXPECT_TRUE(renderer.render(frame, false, {}));
 }
