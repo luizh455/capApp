@@ -28,6 +28,11 @@ struct AppOptions {
     uint32_t targetHeight{1080};
     uint32_t cameraIndex{0};
     std::string cameraName;
+    bool cameraSpecified{false};
+    bool resolutionSpecified{false};
+    bool fpsSpecified{false};
+    bool fullscreenSpecified{false};
+    bool hudSpecified{false};
 };
 
 class CapApplication {
@@ -63,6 +68,7 @@ private:
     void queue_capture_reconfiguration(CaptureRequest request);
     void capture_reconfiguration_loop();
     void stop_capture_reconfiguration_worker() noexcept;
+    void save_settings() const noexcept;
 
     AppOptions options_;
     std::unique_ptr<ui::NativeWindow> window_;

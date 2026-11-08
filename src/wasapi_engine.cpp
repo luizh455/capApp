@@ -753,6 +753,34 @@ std::wstring WasapiAudioEngine::selected_input_device_name() const {
     return impl_->selectedDeviceName;
 }
 
+std::wstring WasapiAudioEngine::selected_input_device_id() const {
+    std::lock_guard lock(impl_->devicesMutex);
+    return impl_->selectedDeviceId;
+}
+
+bool WasapiAudioEngine::select_input_device_id(const std::wstring& id) {
+    AudioInputDevice selected;
+    {
+        std::lock_guard lock(impl_->devicesMutex);
+        const auto device = std::find_if(
+            impl_->inputDevices.begin(), impl_->inputDevices.end(),
+            [&id](const AudioInputDevice& input) { return input.id == id; });
+        if (device == impl_->inputDevices.end()) return false;
+        selected = *device;
+    }
+
+    const bool wasRunning = impl_->running.load(std::memory_order_acquire);
+    if (wasRunning) stop();
+    {
+        std::lock_guard lock(impl_->devicesMutex);
+        impl_->selectedDeviceId = std::move(selected.id);
+        impl_->selectedDeviceName = std::move(selected.name);
+    }
+    AudioBuffer staleBuffer{};
+    while (impl_->captureQueue.pop(staleBuffer)) {}
+    return !wasRunning || start();
+}
+
 bool WasapiAudioEngine::cycle_input_device() {
     AudioInputDevice next;
     {

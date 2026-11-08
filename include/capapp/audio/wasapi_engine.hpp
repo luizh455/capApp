@@ -99,6 +99,8 @@ public:
     bool refresh_input_devices();
     [[nodiscard]] std::vector<AudioInputDevice> input_devices() const;
     [[nodiscard]] std::wstring selected_input_device_name() const;
+    [[nodiscard]] std::wstring selected_input_device_id() const;
+    bool select_input_device_id(const std::wstring& id);
     bool cycle_input_device();
     void set_volume(float volume) noexcept;
     [[nodiscard]] float volume() const noexcept;

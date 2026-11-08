@@ -6,6 +6,13 @@
 #include <sstream>
 #include <iomanip>
 #include <algorithm>
+#include <charconv>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <map>
+#include <system_error>
+#include <cmath>
 
 #if defined(_WIN32)
 #include <objbase.h>
@@ -16,6 +23,139 @@ namespace capapp::capture {
 }
 
 namespace capapp {
+
+namespace {
+
+struct AppSettings {
+    bool fullscreen{false};
+    bool showHud{true};
+    std::string cameraName;
+    uint32_t width{1920};
+    uint32_t height{1080};
+    uint32_t fps{60};
+    uint8_t compression{static_cast<uint8_t>(capture::CaptureCompression::Auto)};
+    uint8_t filter{static_cast<uint8_t>(ui::FilterMode::Passthrough)};
+    bool lanczos{true};
+    std::wstring audioInputId;
+    float volume{1.0f};
+    bool muted{false};
+};
+
+std::filesystem::path settings_path() {
+#if defined(_WIN32)
+    wchar_t* appData = nullptr;
+    if (_wdupenv_s(&appData, nullptr, L"APPDATA") == 0 && appData && *appData) {
+        const std::filesystem::path directory(appData);
+        std::free(appData);
+        return directory / "CapApp" / "settings.ini";
+    }
+    std::free(appData);
+#else
+    if (const char* home = std::getenv("HOME"); home && *home) {
+        return std::filesystem::path(home) / ".config" / "CapApp" / "settings.ini";
+    }
+#endif
+    return std::filesystem::current_path() / "capapp.ini";
+}
+
+bool parse_unsigned(const std::map<std::string, std::string>& values,
+                    const char* key, uint32_t& result) {
+    const auto it = values.find(key);
+    if (it == values.end()) return false;
+    const auto* begin = it->second.data();
+    const auto* end = begin + it->second.size();
+    const auto parsed = std::from_chars(begin, end, result);
+    return parsed.ec == std::errc{} && parsed.ptr == end;
+}
+
+bool parse_boolean(const std::map<std::string, std::string>& values,
+                   const char* key, bool& result) {
+    uint32_t parsed = 0;
+    if (!parse_unsigned(values, key, parsed) || parsed > 1) return false;
+    result = parsed != 0;
+    return true;
+}
+
+std::wstring decode_wide_id(const std::string& encoded) {
+    std::wstring result;
+    if (encoded.size() % 8 != 0) return result;
+    for (size_t i = 0; i < encoded.size(); i += 8) {
+        uint32_t codeUnit = 0;
+        const auto parsed = std::from_chars(encoded.data() + i, encoded.data() + i + 8,
+                                            codeUnit, 16);
+        if (parsed.ec != std::errc{} || parsed.ptr != encoded.data() + i + 8) return {};
+        result.push_back(static_cast<wchar_t>(codeUnit));
+    }
+    return result;
+}
+
+std::string encode_wide_id(const std::wstring& value) {
+    std::ostringstream encoded;
+    encoded << std::hex << std::setfill('0');
+    for (wchar_t character : value) {
+        encoded << std::setw(8) << static_cast<uint32_t>(character);
+    }
+    return encoded.str();
+}
+
+AppSettings load_settings() {
+    AppSettings settings;
+    const auto path = settings_path();
+    std::ifstream file(path);
+    if (!file) return settings;
+
+    std::map<std::string, std::string> values;
+    std::string line;
+    while (std::getline(file, line)) {
+        const size_t separator = line.find('=');
+        if (separator != std::string::npos) {
+            values[line.substr(0, separator)] = line.substr(separator + 1);
+        }
+    }
+
+    parse_boolean(values, "fullscreen", settings.fullscreen);
+    parse_boolean(values, "show_hud", settings.showHud);
+    uint32_t parsedWidth = settings.width;
+    uint32_t parsedHeight = settings.height;
+    if (parse_unsigned(values, "width", parsedWidth) && parsedWidth > 0 && parsedWidth <= 16384) {
+        settings.width = parsedWidth;
+    }
+    if (parse_unsigned(values, "height", parsedHeight) && parsedHeight > 0 && parsedHeight <= 16384) {
+        settings.height = parsedHeight;
+    }
+    uint32_t parsedFps = settings.fps;
+    if (parse_unsigned(values, "fps", parsedFps) && parsedFps > 0 && parsedFps <= 1000) {
+        settings.fps = parsedFps;
+    }
+    uint32_t value = 0;
+    if (parse_unsigned(values, "compression", value) &&
+        value <= static_cast<uint8_t>(capture::CaptureCompression::MJPEG)) {
+        settings.compression = static_cast<uint8_t>(value);
+    }
+    if (parse_unsigned(values, "filter", value) &&
+        value <= static_cast<uint8_t>(ui::FilterMode::HighContrast)) {
+        settings.filter = static_cast<uint8_t>(value);
+    }
+    parse_boolean(values, "lanczos", settings.lanczos);
+    parse_boolean(values, "muted", settings.muted);
+    if (const auto it = values.find("camera_name"); it != values.end()) {
+        std::istringstream input(it->second);
+        input >> std::quoted(settings.cameraName);
+    }
+    if (const auto it = values.find("audio_input_id"); it != values.end()) {
+        settings.audioInputId = decode_wide_id(it->second);
+    }
+    if (const auto it = values.find("volume"); it != values.end()) {
+        std::istringstream input(it->second);
+        float volume = settings.volume;
+        if (input >> volume && std::isfinite(volume) && volume >= 0.0f && volume <= 1.0f) {
+            settings.volume = volume;
+        }
+    }
+    return settings;
+}
+
+} // namespace
 
 CapApplication::CapApplication(AppOptions options)
     : options_(options) {}
@@ -120,7 +260,79 @@ void CapApplication::stop_capture_reconfiguration_worker() noexcept {
     }
 }
 
+void CapApplication::save_settings() const noexcept {
+    try {
+        const auto path = settings_path();
+        std::error_code error;
+        std::filesystem::create_directories(path.parent_path(), error);
+        if (error) {
+            std::cerr << "[CapApp Error] Could not create settings directory: "
+                      << error.message() << "\n";
+            return;
+        }
+
+        std::ofstream file(path, std::ios::trunc);
+        if (!file) {
+            std::cerr << "[CapApp Error] Could not write settings file: "
+                      << path.string() << "\n";
+            return;
+        }
+
+        const auto* camera = cameraSelector_ ? cameraSelector_->active_device() : nullptr;
+        const auto resolution = cameraSelector_ ? cameraSelector_->active_resolution()
+                                                : capture::ResolutionPreset{};
+        file << "fullscreen=" << (window_ && window_->is_fullscreen() ? 1 : 0) << '\n'
+             << "show_hud=" << (options_.showHud ? 1 : 0) << '\n'
+             << "camera_name=" << std::quoted(camera ? camera->name : std::string{}) << '\n'
+             << "width=" << resolution.width << '\n'
+             << "height=" << resolution.height << '\n'
+             << "fps=" << (cameraSelector_ ? cameraSelector_->active_fps() : options_.targetFps) << '\n'
+             << "compression=" << static_cast<unsigned>(captureCompression_) << '\n'
+             << "filter=" << static_cast<unsigned>(activeFilter_) << '\n'
+             << "lanczos=" << (useLanczosScaling_ ? 1 : 0) << '\n';
+        if (audioEngine_) {
+            file << "audio_input_id=" << encode_wide_id(audioEngine_->selected_input_device_id()) << '\n'
+                 << "volume=" << std::setprecision(9) << audioEngine_->volume() << '\n'
+                 << "muted=" << (audioEngine_->is_muted() ? 1 : 0) << '\n';
+        }
+        file.flush();
+        if (!file) {
+            std::cerr << "[CapApp Error] Failed while writing settings file: "
+                      << path.string() << "\n";
+        }
+    } catch (const std::filesystem::filesystem_error& error) {
+        std::cerr << "[CapApp Error] Could not save application settings: "
+                  << error.what() << "\n";
+    } catch (const std::ios_base::failure& error) {
+        std::cerr << "[CapApp Error] Could not save application settings: "
+                  << error.what() << "\n";
+    }
+}
+
 bool CapApplication::initialize() {
+    const AppSettings saved = load_settings();
+    if (!options_.fullscreenSpecified && !options_.startFullscreen) {
+        options_.startFullscreen = saved.fullscreen;
+    }
+    if (!options_.hudSpecified && options_.showHud) {
+        options_.showHud = saved.showHud;
+    }
+    if (!options_.cameraSpecified && options_.cameraName.empty() && options_.cameraIndex == 0 &&
+        !saved.cameraName.empty()) {
+        options_.cameraName = saved.cameraName;
+    }
+    if (!options_.resolutionSpecified && options_.targetWidth == 1920 &&
+        options_.targetHeight == 1080) {
+        options_.targetWidth = saved.width;
+        options_.targetHeight = saved.height;
+    }
+    if (!options_.fpsSpecified && options_.targetFps == 60) {
+        options_.targetFps = saved.fps;
+    }
+    captureCompression_ = static_cast<capture::CaptureCompression>(saved.compression);
+    activeFilter_ = static_cast<ui::FilterMode>(saved.filter);
+    useLanczosScaling_ = saved.lanczos;
+
     std::cout << "[CapApp] Initializing native window...\n";
     ui::WindowConfig winCfg{};
     winCfg.title = L"CapApp - High-Performance Ultra Low-Latency Capture";
@@ -156,7 +368,16 @@ bool CapApplication::initialize() {
     audioCfg.exclusiveMode = false;
     audioCfg.enableDeviceCapture = true;
     audioEngine_ = std::make_unique<audio::WasapiAudioEngine>(audioCfg);
-    if (!audioEngine_->initialize() || !audioEngine_->start()) {
+    if (!audioEngine_->initialize()) {
+        std::cerr << "[CapApp Error] Failed to initialize the audio capture engine.\n";
+    }
+    if (!saved.audioInputId.empty() &&
+        !audioEngine_->select_input_device_id(saved.audioInputId)) {
+        std::cerr << "[CapApp Warning] Saved audio input is unavailable; using the default input.\n";
+    }
+    audioEngine_->set_volume(saved.volume);
+    audioEngine_->set_muted(saved.muted);
+    if (!audioEngine_->start()) {
         std::cerr << "[CapApp Error] Failed to start the audio capture engine.\n";
     }
 
@@ -164,7 +385,7 @@ bool CapApplication::initialize() {
     cameraSelector_ = std::make_unique<capture::CameraSelector>();
     if (!options_.cameraName.empty()) {
         cameraSelector_->select_device_by_name(options_.cameraName);
-    } else if (options_.cameraIndex > 0) {
+    } else if (options_.cameraSpecified || options_.cameraIndex > 0) {
         cameraSelector_->select_device(options_.cameraIndex);
     }
     if (options_.targetWidth > 0 && options_.targetHeight > 0) {
@@ -175,6 +396,14 @@ bool CapApplication::initialize() {
     }
 
     const auto* initialCam = cameraSelector_->active_device();
+    if (initialCam &&
+        std::find(initialCam->supportedCompressions.begin(),
+                  initialCam->supportedCompressions.end(), captureCompression_) ==
+            initialCam->supportedCompressions.end()) {
+        std::cerr << "[CapApp Warning] Saved capture format is unavailable for "
+                  << initialCam->name << "; using Auto.\n";
+        captureCompression_ = capture::CaptureCompression::Auto;
+    }
     std::cout << "[CapApp] Active Camera: [" << (initialCam ? initialCam->index : 0) << "] "
               << (initialCam ? initialCam->name : "Default") << "\n";
 
@@ -279,6 +508,7 @@ bool CapApplication::initialize() {
                 std::cerr << "[CapApp Warning] No other active audio input is available.\n";
             }
         }
+        save_settings();
     };
 
     lastFpsUpdateNs_ = audio::WasapiAudioEngine::query_system_clock_ns();
@@ -453,6 +683,7 @@ int CapApplication::run() {
     }
 
     std::cout << "[CapApp] Shutting down application...\n";
+    save_settings();
     stop_capture_reconfiguration_worker();
     {
         std::lock_guard lock(captureDeviceMutex_);

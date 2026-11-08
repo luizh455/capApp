@@ -33,6 +33,7 @@ int main(int argc, char* argv[]) {
             return 0;
         } else if ((std::strcmp(argv[i], "--device") == 0 || std::strcmp(argv[i], "-d") == 0) && i + 1 < argc) {
             std::string arg = argv[++i];
+            options.cameraSpecified = true;
             if (!arg.empty() && std::isdigit(static_cast<unsigned char>(arg[0]))) {
                 options.cameraIndex = static_cast<uint32_t>(std::stoul(arg));
             } else {
@@ -40,6 +41,7 @@ int main(int argc, char* argv[]) {
             }
         } else if ((std::strcmp(argv[i], "--resolution") == 0 || std::strcmp(argv[i], "-r") == 0) && i + 1 < argc) {
             std::string resStr = argv[++i];
+            options.resolutionSpecified = true;
             if (resStr == "1080p" || resStr == "1080") {
                 options.targetWidth = 1920; options.targetHeight = 1080;
             } else if (resStr == "1440p" || resStr == "1440") {
@@ -52,6 +54,7 @@ int main(int argc, char* argv[]) {
             }
         } else if (std::strcmp(argv[i], "--fps") == 0 && i + 1 < argc) {
             options.targetFps = static_cast<uint32_t>(std::stoul(argv[++i]));
+            options.fpsSpecified = true;
         } else if (std::strcmp(argv[i], "--benchmark") == 0 || std::strcmp(argv[i], "-b") == 0) {
             std::cout << "[CapApp] Initiating automated glass-to-glass latency benchmark (500 frames)...\n";
             capapp::profiling::LatencyBenchmark bench(500);
@@ -60,8 +63,10 @@ int main(int argc, char* argv[]) {
             return 0;
         } else if (std::strcmp(argv[i], "--fullscreen") == 0 || std::strcmp(argv[i], "-f") == 0) {
             options.startFullscreen = true;
+            options.fullscreenSpecified = true;
         } else if (std::strcmp(argv[i], "--no-hud") == 0) {
             options.showHud = false;
+            options.hudSpecified = true;
         } else if (std::strcmp(argv[i], "--help") == 0 || std::strcmp(argv[i], "-h") == 0) {
             std::cout << "Usage: capapp.exe [options]\n";
             std::cout << "Options:\n";
@@ -81,10 +86,12 @@ int main(int argc, char* argv[]) {
             std::cout << "  L     - Toggle Scaling Filter (Smooth / Lanczos-3)\n";
             std::cout << "  F     - Cycle Post-Processing Shader FX (Scanlines, Sharpen, Contrast)\n";
             std::cout << "  S     - Take High-Res Frame Snapshot\n";
+            std::cout << "  I     - Cycle Audio Input | +/- - Volume | M - Mute\n";
             std::cout << "  F11   - Toggle Exclusive Fullscreen / Windowed\n";
             std::cout << "  Tab   - Toggle OSD Telemetry HUD\n";
             std::cout << "  Space - Pause / Resume Streaming\n";
             std::cout << "  Esc   - Exit Application\n";
+            std::cout << "Settings are saved automatically and restored on the next launch.\n";
             return 0;
         }
     }
