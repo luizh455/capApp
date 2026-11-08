@@ -105,6 +105,7 @@ bool CapApplication::initialize() {
         cfg.deviceName = newDev.name;
         cfg.enableZeroCopy = true;
 
+        lastFrame_.data = nullptr;
         captureDev_->close();
         captureDev_ = capture::create_capture_device(newDev.symbolicLink);
         captureDev_->open(cfg);
@@ -123,6 +124,7 @@ bool CapApplication::initialize() {
         cfg.deviceName = dev ? dev->name : "Default";
         cfg.enableZeroCopy = true;
 
+        lastFrame_.data = nullptr;
         captureDev_->close();
         captureDev_ = capture::create_capture_device(dev ? dev->symbolicLink : L"");
         captureDev_->open(cfg);
@@ -134,6 +136,12 @@ bool CapApplication::initialize() {
     frameRecorder_->start();
 
     // Setup input callbacks
+    window_->onResize = [this](uint32_t, uint32_t) {
+        render_frame();
+    };
+    window_->onPaint = [this]() {
+        render_frame();
+    };
     window_->onKeyPress = [this](uint32_t key) {
         if (key == VK_TAB) {
             toggle_hud();
@@ -242,7 +250,6 @@ int CapApplication::run() {
 
             if (hasFrame) {
                 captureDev_->release_frame(frame);
-                lastFrame_.data = nullptr; // staging buffer will be reused next frame
             }
         }
 
@@ -297,8 +304,29 @@ void CapApplication::render_frame() {
     // ----------------------------------------------------------------
     // 1. Draw camera frame (or dark placeholder if no frame available)
     // ----------------------------------------------------------------
+    HBRUSH backgroundBrush = CreateSolidBrush(RGB(0, 0, 0));
+    FillRect(memDC_, &clientRect, backgroundBrush);
+    DeleteObject(backgroundBrush);
+
     if (lastFrame_.data && lastFrame_.width > 0 && lastFrame_.height > 0) {
-        // Blit live camera pixels using StretchDIBits (BGRA8 → GDI)
+        const uint64_t sourceWidth = lastFrame_.width;
+        const uint64_t sourceHeight = lastFrame_.height;
+        int destWidth = width;
+        int destHeight = height;
+
+        if (static_cast<uint64_t>(width) * sourceHeight >
+            static_cast<uint64_t>(height) * sourceWidth) {
+            destWidth = static_cast<int>(static_cast<uint64_t>(height) * sourceWidth / sourceHeight);
+            if (destWidth == 0) destWidth = 1;
+        } else {
+            destHeight = static_cast<int>(static_cast<uint64_t>(width) * sourceHeight / sourceWidth);
+            if (destHeight == 0) destHeight = 1;
+        }
+
+        const int destX = (width - destWidth) / 2;
+        const int destY = (height - destHeight) / 2;
+
+        // Fit the frame inside the client area to preserve its aspect ratio.
         BITMAPINFO bmi{};
         bmi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
         bmi.bmiHeader.biWidth       = static_cast<LONG>(lastFrame_.width);
@@ -311,7 +339,7 @@ void CapApplication::render_frame() {
 
         StretchDIBits(
             memDC_,
-            0, 0, width, height,                       // dest rect (stretch to window)
+            destX, destY, destWidth, destHeight,
             0, 0,
             static_cast<int>(lastFrame_.width),
             static_cast<int>(lastFrame_.height),       // source rect
