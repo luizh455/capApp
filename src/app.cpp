@@ -6,6 +6,10 @@
 #include <sstream>
 #include <iomanip>
 
+#if defined(_WIN32)
+#include <objbase.h>
+#endif
+
 namespace capapp::capture {
     std::unique_ptr<ICaptureDevice> create_capture_device(const std::wstring& symbolicLink);
 }
@@ -16,6 +20,7 @@ CapApplication::CapApplication(AppOptions options)
     : options_(options) {}
 
 CapApplication::~CapApplication() {
+    stop_capture_reconfiguration_worker();
 #if defined(_WIN32)
     if (memDC_) {
         SelectObject(memDC_, oldBitmap_);
@@ -23,6 +28,95 @@ CapApplication::~CapApplication() {
         DeleteDC(memDC_);
     }
 #endif
+}
+
+void CapApplication::queue_capture_reconfiguration(CaptureRequest request) {
+    {
+        std::lock_guard lock(captureRequestMutex_);
+        if (stopCaptureReconfiguration_) {
+            std::cerr << "[CapApp Error] Capture reconfiguration worker is unavailable.\n";
+            return;
+        }
+        pendingCaptureRequest_ = std::move(request);
+        captureReconfiguring_.store(true, std::memory_order_release);
+    }
+    captureRequestCv_.notify_one();
+}
+
+void CapApplication::capture_reconfiguration_loop() {
+#if defined(_WIN32)
+    const HRESULT comResult = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    if (FAILED(comResult)) {
+        std::cerr << "[CapApp Error] Failed to initialize COM for capture configuration: 0x"
+                  << std::hex << comResult << std::dec << "\n";
+        std::lock_guard lock(captureRequestMutex_);
+        pendingCaptureRequest_.reset();
+        captureReconfiguring_.store(false, std::memory_order_release);
+        stopCaptureReconfiguration_ = true;
+        return;
+    }
+#endif
+
+    for (;;) {
+        CaptureRequest request;
+        {
+            std::unique_lock lock(captureRequestMutex_);
+            captureRequestCv_.wait(lock, [this] {
+                return stopCaptureReconfiguration_ || pendingCaptureRequest_.has_value();
+            });
+            if (stopCaptureReconfiguration_) break;
+
+            request = std::move(*pendingCaptureRequest_);
+            pendingCaptureRequest_.reset();
+        }
+
+        {
+            std::lock_guard lock(captureDeviceMutex_);
+            {
+                std::lock_guard frameLock(lastFrameMutex_);
+                lastFrame_.data = nullptr;
+                lastFrame_.width = 0;
+                lastFrame_.height = 0;
+            }
+            if (captureDev_) captureDev_->close();
+
+            auto newDevice = capture::create_capture_device(request.symbolicLink);
+            if (!newDevice->open(request.config) || !newDevice->start_stream()) {
+                std::cerr << "[CapApp Error] Failed to apply capture configuration for "
+                          << request.config.deviceName << ".\n";
+                newDevice->close();
+                captureDev_ = std::move(newDevice);
+            } else {
+                captureDev_ = std::move(newDevice);
+                std::cout << "[CapApp] Capture configuration applied: "
+                          << request.config.targetWidth << "x" << request.config.targetHeight
+                          << " @" << request.config.targetFps << " FPS\n";
+            }
+        }
+
+        {
+            std::lock_guard lock(captureRequestMutex_);
+            if (!pendingCaptureRequest_) {
+                captureReconfiguring_.store(false, std::memory_order_release);
+            }
+        }
+    }
+
+#if defined(_WIN32)
+    CoUninitialize();
+#endif
+}
+
+void CapApplication::stop_capture_reconfiguration_worker() noexcept {
+    {
+        std::lock_guard lock(captureRequestMutex_);
+        stopCaptureReconfiguration_ = true;
+        pendingCaptureRequest_.reset();
+    }
+    captureRequestCv_.notify_one();
+    if (captureReconfigurationThread_.joinable()) {
+        captureReconfigurationThread_.join();
+    }
 }
 
 bool CapApplication::initialize() {
@@ -105,11 +199,7 @@ bool CapApplication::initialize() {
         cfg.deviceName = newDev.name;
         cfg.enableZeroCopy = true;
 
-        lastFrame_.data = nullptr;
-        captureDev_->close();
-        captureDev_ = capture::create_capture_device(newDev.symbolicLink);
-        captureDev_->open(cfg);
-        captureDev_->start_stream();
+        queue_capture_reconfiguration({newDev.symbolicLink, std::move(cfg)});
     };
 
     // Dynamic resolution / FPS format change callback
@@ -124,12 +214,9 @@ bool CapApplication::initialize() {
         cfg.deviceName = dev ? dev->name : "Default";
         cfg.enableZeroCopy = true;
 
-        lastFrame_.data = nullptr;
-        captureDev_->close();
-        captureDev_ = capture::create_capture_device(dev ? dev->symbolicLink : L"");
-        captureDev_->open(cfg);
-        captureDev_->start_stream();
+        queue_capture_reconfiguration({dev ? dev->symbolicLink : L"", std::move(cfg)});
     };
+    captureReconfigurationThread_ = std::thread(&CapApplication::capture_reconfiguration_loop, this);
 
     avSync_ = std::make_unique<sync::AVSyncPipeline>(vulkanCtx_.get());
     frameRecorder_ = std::make_unique<capture::FrameRecorder>();
@@ -200,6 +287,7 @@ void CapApplication::cycle_filter() noexcept {
 }
 
 void CapApplication::take_snapshot() noexcept {
+    std::lock_guard lock(lastFrameMutex_);
     if (frameRecorder_ && lastFrame_.data && lastFrame_.width > 0) {
         frameRecorder_->capture_snapshot(lastFrame_);
         std::cout << "[CapApp] Captured snapshot frame " << lastFrame_.timestampNs << "\n";
@@ -217,13 +305,24 @@ int CapApplication::run() {
 
         if (!isPaused_) {
             Frame frame{};
-            bool hasFrame = captureDev_->acquire_frame(frame);
-            if (hasFrame) {
-                // Keep a copy of frame metadata + pixel pointer for rendering.
-                // The staging buffer lives inside MFCaptureDevice and is valid
-                // until the next acquire_frame call.
-                lastFrame_ = frame;
-                avSync_->push_video_frame(frame);
+            bool hasFrame = false;
+            if (!captureReconfiguring_.load(std::memory_order_acquire)) {
+                std::unique_lock captureLock(captureDeviceMutex_, std::try_to_lock);
+                if (captureLock.owns_lock() &&
+                    !captureReconfiguring_.load(std::memory_order_acquire)) {
+                    hasFrame = captureDev_->acquire_frame(frame);
+                    if (hasFrame) {
+                        {
+                            std::lock_guard frameLock(lastFrameMutex_);
+                            lastFrame_ = frame;
+                        }
+                        avSync_->push_video_frame(frame);
+                        captureDev_->release_frame(frame);
+                    }
+                }
+            }
+            if (!hasFrame) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
 
             // Simulate incoming WASAPI audio packet
@@ -239,21 +338,9 @@ int CapApplication::run() {
             AudioBuffer pairedAudio{};
             avSync_->get_synchronized_pair(pairedVideo, pairedAudio);
 
-            // Fall back to synced pair pixels if we have no fresh frame yet
-            if (!lastFrame_.data && pairedVideo.data) {
-                lastFrame_ = pairedVideo;
-            }
-
             render_frame();
             frameCount_++;
             framesInInterval++;
-
-            if (hasFrame) {
-                captureDev_->release_frame(frame);
-            } else {
-                // Avoid a busy loop if the capture source temporarily has no frame.
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            }
         }
 
         // FPS calculation every 500ms
@@ -271,7 +358,11 @@ int CapApplication::run() {
     }
 
     std::cout << "[CapApp] Shutting down application...\n";
-    captureDev_->close();
+    stop_capture_reconfiguration_worker();
+    {
+        std::lock_guard lock(captureDeviceMutex_);
+        if (captureDev_) captureDev_->close();
+    }
     audioEngine_->stop();
     vulkanCtx_->shutdown();
     window_->destroy();
@@ -289,6 +380,7 @@ void CapApplication::render_frame() {
     int height = clientRect.bottom - clientRect.top;
     if (width <= 0 || height <= 0) return;
 
+    std::lock_guard frameLock(lastFrameMutex_);
     HDC hdc = GetDC(hwnd);
 
     // Recreate backbuffer on resize

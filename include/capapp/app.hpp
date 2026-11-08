@@ -9,7 +9,12 @@
 #include <capapp/capture/frame_recorder.hpp>
 #include <capapp/sync/av_sync_pipeline.hpp>
 #include <memory>
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
+#include <optional>
 #include <string>
+#include <thread>
 
 namespace capapp {
 
@@ -45,8 +50,16 @@ public:
     void take_snapshot() noexcept;
 
 private:
+    struct CaptureRequest {
+        std::wstring symbolicLink;
+        capture::CaptureDeviceConfig config;
+    };
+
     void render_frame();
     void render_hud(HDC hdc, int width, int height);
+    void queue_capture_reconfiguration(CaptureRequest request);
+    void capture_reconfiguration_loop();
+    void stop_capture_reconfiguration_worker() noexcept;
 
     AppOptions options_;
     std::unique_ptr<ui::NativeWindow> window_;
@@ -56,6 +69,14 @@ private:
     std::unique_ptr<capture::CameraSelector> cameraSelector_;
     std::unique_ptr<capture::FrameRecorder> frameRecorder_;
     std::unique_ptr<sync::AVSyncPipeline> avSync_;
+    std::mutex captureDeviceMutex_;
+    std::mutex lastFrameMutex_;
+    std::mutex captureRequestMutex_;
+    std::condition_variable captureRequestCv_;
+    std::optional<CaptureRequest> pendingCaptureRequest_;
+    std::thread captureReconfigurationThread_;
+    std::atomic<bool> captureReconfiguring_{false};
+    bool stopCaptureReconfiguration_{false};
 
     ui::FilterMode activeFilter_{ui::FilterMode::Passthrough};
     bool isPaused_{false};
