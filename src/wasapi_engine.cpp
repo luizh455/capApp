@@ -45,8 +45,11 @@ struct WasapiAudioEngine::Impl {
     mutable std::mutex monitorErrorMutex;
     mutable std::mutex devicesMutex;
     std::vector<AudioInputDevice> inputDevices;
+    std::vector<AudioInputDevice> outputDevices;
     std::wstring selectedDeviceId;
     std::wstring selectedDeviceName;
+    std::wstring selectedOutputDeviceId;
+    std::wstring selectedOutputDeviceName;
     std::string captureError;
     std::string monitorError;
 
@@ -195,9 +198,11 @@ struct WasapiAudioEngine::Impl {
         HANDLE outputEvent = nullptr;
         UINT32 outputBufferFrameCount = 0;
         std::wstring selectedId;
+        std::wstring selectedOutputId;
         {
             std::lock_guard lock(devicesMutex);
             selectedId = selectedDeviceId;
+            selectedOutputId = selectedOutputDeviceId;
         }
         HRESULT result = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
             __uuidof(IMMDeviceEnumerator), reinterpret_cast<void**>(&enumerator));
@@ -221,7 +226,9 @@ struct WasapiAudioEngine::Impl {
         }
         if (SUCCEEDED(result)) result = client->SetEventHandle(eventHandle);
 
-        HRESULT outputResult = enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &outputDevice);
+        HRESULT outputResult = selectedOutputId.empty()
+            ? enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &outputDevice)
+            : enumerator->GetDevice(selectedOutputId.c_str(), &outputDevice);
         if (SUCCEEDED(outputResult)) {
             outputResult = outputDevice->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
                 reinterpret_cast<void**>(&outputClient));
@@ -272,7 +279,7 @@ struct WasapiAudioEngine::Impl {
             std::lock_guard lock(monitorErrorMutex);
             monitorError.clear();
         } else {
-            set_monitor_error("Could not start audio monitoring on the default output", outputResult);
+            set_monitor_error("Could not start audio monitoring on the selected output", outputResult);
         }
 
         bool isFloat = false;
@@ -548,6 +555,7 @@ WasapiAudioEngine::~WasapiAudioEngine() {
 
 bool WasapiAudioEngine::initialize() {
     refresh_input_devices();
+    refresh_output_devices();
     return true;
 }
 
@@ -743,9 +751,107 @@ bool WasapiAudioEngine::refresh_input_devices() {
 #endif
 }
 
+bool WasapiAudioEngine::refresh_output_devices() {
+#if defined(_WIN32)
+    const HRESULT comResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    const bool uninitializeCom = SUCCEEDED(comResult);
+    if (FAILED(comResult) && comResult != RPC_E_CHANGED_MODE) {
+        impl_->set_monitor_error("Could not initialize COM to enumerate audio outputs", comResult);
+        return false;
+    }
+
+    IMMDeviceEnumerator* enumerator = nullptr;
+    IMMDeviceCollection* collection = nullptr;
+    IMMDevice* defaultDevice = nullptr;
+    LPWSTR defaultId = nullptr;
+    HRESULT result = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
+        __uuidof(IMMDeviceEnumerator), reinterpret_cast<void**>(&enumerator));
+    if (SUCCEEDED(result)) {
+        result = enumerator->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &collection);
+    }
+    if (SUCCEEDED(result) &&
+        SUCCEEDED(enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &defaultDevice))) {
+        defaultDevice->GetId(&defaultId);
+    }
+
+    std::vector<AudioInputDevice> devices;
+    UINT count = 0;
+    if (SUCCEEDED(result)) result = collection->GetCount(&count);
+    for (UINT i = 0; SUCCEEDED(result) && i < count; ++i) {
+        IMMDevice* device = nullptr;
+        IPropertyStore* properties = nullptr;
+        LPWSTR id = nullptr;
+        PROPVARIANT friendlyName;
+        PropVariantInit(&friendlyName);
+
+        result = collection->Item(i, &device);
+        if (SUCCEEDED(result)) result = device->GetId(&id);
+        if (SUCCEEDED(result)) result = device->OpenPropertyStore(STGM_READ, &properties);
+        if (SUCCEEDED(result)) result = properties->GetValue(PKEY_Device_FriendlyName, &friendlyName);
+        if (SUCCEEDED(result) && id) {
+            AudioInputDevice entry;
+            entry.id = id;
+            entry.name = friendlyName.vt == VT_LPWSTR && friendlyName.pwszVal
+                ? friendlyName.pwszVal : id;
+            devices.push_back(std::move(entry));
+        }
+
+        PropVariantClear(&friendlyName);
+        if (id) CoTaskMemFree(id);
+        if (properties) properties->Release();
+        if (device) device->Release();
+    }
+
+    const std::wstring defaultDeviceId = defaultId ? defaultId : L"";
+    if (defaultId) CoTaskMemFree(defaultId);
+    if (defaultDevice) defaultDevice->Release();
+    if (collection) collection->Release();
+    if (enumerator) enumerator->Release();
+    if (uninitializeCom) CoUninitialize();
+
+    if (FAILED(result)) {
+        impl_->set_monitor_error("Could not enumerate Windows audio output devices", result);
+        return false;
+    }
+
+    {
+        std::lock_guard lock(impl_->devicesMutex);
+        impl_->outputDevices = std::move(devices);
+        const auto selected = std::find_if(
+            impl_->outputDevices.begin(), impl_->outputDevices.end(),
+            [this](const AudioInputDevice& device) {
+                return impl_->selectedOutputDeviceId == device.id;
+            });
+        if (selected == impl_->outputDevices.end()) {
+            const auto defaultDeviceIt = std::find_if(
+                impl_->outputDevices.begin(), impl_->outputDevices.end(),
+                [&defaultDeviceId](const AudioInputDevice& device) {
+                    return !defaultDeviceId.empty() && device.id == defaultDeviceId;
+                });
+            const auto chosen = defaultDeviceIt != impl_->outputDevices.end()
+                ? defaultDeviceIt : impl_->outputDevices.begin();
+            impl_->selectedOutputDeviceId =
+                chosen == impl_->outputDevices.end() ? L"" : chosen->id;
+            impl_->selectedOutputDeviceName =
+                chosen == impl_->outputDevices.end() ? L"" : chosen->name;
+        } else {
+            impl_->selectedOutputDeviceName = selected->name;
+        }
+    }
+    return true;
+#else
+    return true;
+#endif
+}
+
 std::vector<AudioInputDevice> WasapiAudioEngine::input_devices() const {
     std::lock_guard lock(impl_->devicesMutex);
     return impl_->inputDevices;
+}
+
+std::vector<AudioInputDevice> WasapiAudioEngine::output_devices() const {
+    std::lock_guard lock(impl_->devicesMutex);
+    return impl_->outputDevices;
 }
 
 std::wstring WasapiAudioEngine::selected_input_device_name() const {
@@ -756,6 +862,16 @@ std::wstring WasapiAudioEngine::selected_input_device_name() const {
 std::wstring WasapiAudioEngine::selected_input_device_id() const {
     std::lock_guard lock(impl_->devicesMutex);
     return impl_->selectedDeviceId;
+}
+
+std::wstring WasapiAudioEngine::selected_output_device_name() const {
+    std::lock_guard lock(impl_->devicesMutex);
+    return impl_->selectedOutputDeviceName;
+}
+
+std::wstring WasapiAudioEngine::selected_output_device_id() const {
+    std::lock_guard lock(impl_->devicesMutex);
+    return impl_->selectedOutputDeviceId;
 }
 
 bool WasapiAudioEngine::select_input_device_id(const std::wstring& id) {
@@ -778,6 +894,27 @@ bool WasapiAudioEngine::select_input_device_id(const std::wstring& id) {
     }
     AudioBuffer staleBuffer{};
     while (impl_->captureQueue.pop(staleBuffer)) {}
+    return !wasRunning || start();
+}
+
+bool WasapiAudioEngine::select_output_device_id(const std::wstring& id) {
+    AudioInputDevice selected;
+    {
+        std::lock_guard lock(impl_->devicesMutex);
+        const auto device = std::find_if(
+            impl_->outputDevices.begin(), impl_->outputDevices.end(),
+            [&id](const AudioInputDevice& output) { return output.id == id; });
+        if (device == impl_->outputDevices.end()) return false;
+        selected = *device;
+    }
+
+    const bool wasRunning = impl_->running.load(std::memory_order_acquire);
+    if (wasRunning) stop();
+    {
+        std::lock_guard lock(impl_->devicesMutex);
+        impl_->selectedOutputDeviceId = std::move(selected.id);
+        impl_->selectedOutputDeviceName = std::move(selected.name);
+    }
     return !wasRunning || start();
 }
 

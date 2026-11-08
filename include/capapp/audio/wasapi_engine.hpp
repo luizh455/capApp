@@ -97,10 +97,15 @@ public:
     [[nodiscard]] bool monitoring_available() const noexcept;
     [[nodiscard]] std::string monitoring_error() const;
     bool refresh_input_devices();
+    bool refresh_output_devices();
     [[nodiscard]] std::vector<AudioInputDevice> input_devices() const;
+    [[nodiscard]] std::vector<AudioInputDevice> output_devices() const;
     [[nodiscard]] std::wstring selected_input_device_name() const;
     [[nodiscard]] std::wstring selected_input_device_id() const;
+    [[nodiscard]] std::wstring selected_output_device_name() const;
+    [[nodiscard]] std::wstring selected_output_device_id() const;
     bool select_input_device_id(const std::wstring& id);
+    bool select_output_device_id(const std::wstring& id);
     bool cycle_input_device(int direction = 1);
     void set_volume(float volume) noexcept;
     [[nodiscard]] float volume() const noexcept;

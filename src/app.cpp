@@ -38,6 +38,7 @@ struct AppSettings {
     uint8_t filter{static_cast<uint8_t>(ui::FilterMode::Passthrough)};
     bool lanczos{true};
     std::wstring audioInputId;
+    std::wstring audioOutputId;
     float volume{1.0f};
     bool muted{false};
 };
@@ -145,6 +146,9 @@ AppSettings load_settings() {
     }
     if (const auto it = values.find("audio_input_id"); it != values.end()) {
         settings.audioInputId = decode_wide_id(it->second);
+    }
+    if (const auto it = values.find("audio_output_id"); it != values.end()) {
+        settings.audioOutputId = decode_wide_id(it->second);
     }
     if (const auto it = values.find("volume"); it != values.end()) {
         std::istringstream input(it->second);
@@ -293,6 +297,7 @@ void CapApplication::save_settings() const noexcept {
              << "lanczos=" << (useLanczosScaling_ ? 1 : 0) << '\n';
         if (audioEngine_) {
             file << "audio_input_id=" << encode_wide_id(audioEngine_->selected_input_device_id()) << '\n'
+                 << "audio_output_id=" << encode_wide_id(audioEngine_->selected_output_device_id()) << '\n'
                  << "volume=" << std::setprecision(9) << audioEngine_->volume() << '\n'
                  << "muted=" << (audioEngine_->is_muted() ? 1 : 0) << '\n';
         }
@@ -375,6 +380,10 @@ bool CapApplication::initialize() {
     if (!saved.audioInputId.empty() &&
         !audioEngine_->select_input_device_id(saved.audioInputId)) {
         std::cerr << "[CapApp Warning] Saved audio input is unavailable; using the default input.\n";
+    }
+    if (!saved.audioOutputId.empty() &&
+        !audioEngine_->select_output_device_id(saved.audioOutputId)) {
+        std::cerr << "[CapApp Warning] Saved audio output is unavailable; using the default output.\n";
     }
     audioEngine_->set_volume(saved.volume);
     audioEngine_->set_muted(saved.muted);
@@ -550,7 +559,7 @@ bool CapApplication::initialize() {
     window_->onMouseClick = [this](int32_t x, int32_t y) {
         constexpr int rowTop = 100;
         constexpr int rowHeight = 40;
-        constexpr int optionCount = 10;
+        constexpr int optionCount = 11;
         if (!options_.showHud) return;
         if (optionPanelOpen_ && x >= 604 && x <= 932 && y >= 100) {
             constexpr int choiceTop = 106;
@@ -661,7 +670,7 @@ void CapApplication::take_snapshot() noexcept {
 }
 
 void CapApplication::select_home_option(int option) noexcept {
-    constexpr int optionCount = 10;
+    constexpr int optionCount = 11;
     selectedHomeOption_ = (option % optionCount + optionCount) % optionCount;
     optionPanelOpen_ = false;
 }
@@ -721,14 +730,19 @@ std::vector<std::wstring> CapApplication::home_option_choices(int option) const 
             }
             break;
         case 7:
+            for (const auto& device : audioEngine_->output_devices()) {
+                choices.push_back(device.name);
+            }
+            break;
+        case 8:
             for (int volume = 0; volume <= 100; volume += 10) {
                 choices.push_back(std::to_wstring(volume) + L"%");
             }
             break;
-        case 8:
+        case 9:
             choices = {L"Unmuted", L"Muted"};
             break;
-        case 9:
+        case 10:
             choices = {L"Windowed", L"Fullscreen"};
             break;
     }
@@ -772,11 +786,18 @@ int CapApplication::current_option_choice(int option) const {
                 [&id](const audio::AudioInputDevice& input) { return input.id == id; });
             return device == devices.end() ? -1 : static_cast<int>(device - devices.begin());
         }
-        case 7:
-            return static_cast<int>(std::lround(audioEngine_->volume() * 10.0f));
+        case 7: {
+            const auto devices = audioEngine_->output_devices();
+            const auto id = audioEngine_->selected_output_device_id();
+            const auto device = std::find_if(devices.begin(), devices.end(),
+                [&id](const audio::AudioInputDevice& output) { return output.id == id; });
+            return device == devices.end() ? -1 : static_cast<int>(device - devices.begin());
+        }
         case 8:
-            return audioEngine_->is_muted() ? 1 : 0;
+            return static_cast<int>(std::lround(audioEngine_->volume() * 10.0f));
         case 9:
+            return audioEngine_->is_muted() ? 1 : 0;
+        case 10:
             return window_->is_fullscreen() ? 1 : 0;
         default:
             return -1;
@@ -847,13 +868,21 @@ void CapApplication::apply_option_choice(int option, size_t choice) {
             if (choice < devices.size()) audioEngine_->select_input_device_id(devices[choice].id);
             break;
         }
-        case 7:
+        case 7: {
+            const auto devices = audioEngine_->output_devices();
+            if (choice < devices.size() &&
+                !audioEngine_->select_output_device_id(devices[choice].id)) {
+                std::cerr << "[CapApp Warning] Could not switch to the selected audio output.\n";
+            }
+            break;
+        }
+        case 8:
             audioEngine_->set_volume(static_cast<float>(choice) / 10.0f);
             break;
-        case 8:
+        case 9:
             audioEngine_->set_muted(choice == 1);
             break;
-        case 9:
+        case 10:
             if ((choice == 1) != window_->is_fullscreen()) window_->toggle_fullscreen();
             break;
     }
@@ -1128,7 +1157,7 @@ void CapApplication::render_hud(HDC hdc, int width, int height) {
         return;
     }
 
-    RECT panel{16, 16, 584, showNegotiatedInfo_ ? 670 : 544};
+    RECT panel{16, 16, 584, showNegotiatedInfo_ ? 730 : 584};
     HBRUSH panelBrush = CreateSolidBrush(RGB(18, 25, 39));
     HPEN panelPen = CreatePen(PS_SOLID, 1, RGB(47, 64, 91));
     HBRUSH oldBrush = reinterpret_cast<HBRUSH>(SelectObject(hdc, panelBrush));
@@ -1164,8 +1193,7 @@ void CapApplication::render_hud(HDC hdc, int width, int height) {
     };
     const auto resolution = cameraSelector_ ? cameraSelector_->active_resolution()
                                             : capture::ResolutionPreset{};
-    const auto audioDevices = audioEngine_->input_devices();
-    std::array<std::wstring, 10> values{
+    std::array<std::wstring, 11> values{
         activeCam ? widen(activeCam->name) : L"No camera",
         std::to_wstring(resolution.width) + L" x " + std::to_wstring(resolution.height),
         std::to_wstring(cameraSelector_ ? cameraSelector_->active_fps() : options_.targetFps) + L" FPS",
@@ -1174,13 +1202,15 @@ void CapApplication::render_hud(HDC hdc, int width, int height) {
         useLanczosScaling_ ? L"Lanczos-3" : L"Smooth",
         audioEngine_->selected_input_device_name().empty()
             ? L"No audio input" : audioEngine_->selected_input_device_name(),
+        audioEngine_->selected_output_device_name().empty()
+            ? L"No audio output" : audioEngine_->selected_output_device_name(),
         std::to_wstring(static_cast<int>(std::lround(audioEngine_->volume() * 100.0f))) + L"%",
         audioEngine_->is_muted() ? L"Muted" : L"Unmuted",
         window_->is_fullscreen() ? L"Fullscreen" : L"Windowed"
     };
-    const std::array<const wchar_t*, 10> labels{
+    const std::array<const wchar_t*, 11> labels{
         L"VIDEO INPUT", L"RESOLUTION", L"FRAME RATE", L"CAPTURE FORMAT", L"PICTURE FILTER",
-        L"SCALING", L"AUDIO INPUT", L"VOLUME", L"AUDIO MUTE", L"DISPLAY"
+        L"SCALING", L"AUDIO INPUT", L"AUDIO OUTPUT", L"VOLUME", L"AUDIO MUTE", L"DISPLAY"
     };
     constexpr int rowTop = 100;
     constexpr int rowHeight = 40;
@@ -1305,20 +1335,20 @@ void CapApplication::render_hud(HDC hdc, int width, int height) {
     SetTextColor(hdc, RGB(132, 154, 183));
     SelectObject(hdc, subFont);
     if (showNegotiatedInfo_) {
-        render_monitoring_info(hdc, 510);
+        render_monitoring_info(hdc, 550);
         SetTextColor(hdc, RGB(132, 154, 183));
         constexpr const wchar_t* controls = L"Esc menu    Tab toggle monitoring details";
-        TextOutW(hdc, 38, 650, controls, static_cast<int>(wcslen(controls)));
+        TextOutW(hdc, 38, 690, controls, static_cast<int>(wcslen(controls)));
     } else {
         constexpr const wchar_t* controls = L"Esc menu    Tab show monitoring details";
-        TextOutW(hdc, 38, 511, controls, static_cast<int>(wcslen(controls)));
+        TextOutW(hdc, 38, 548, controls, static_cast<int>(wcslen(controls)));
         const std::wstring status =
             (audioEngine_->device_capture_available() ? L"MIC READY" : L"MIC UNAVAILABLE") +
             std::wstring(L"   ·   ") +
             (audioEngine_->monitoring_available() ? L"MONITORING" : L"NO OUTPUT");
         SetTextColor(hdc, audioEngine_->monitoring_available()
             ? RGB(110, 231, 183) : RGB(248, 113, 113));
-        TextOutW(hdc, 38, 529, status.c_str(), static_cast<int>(status.size()));
+        TextOutW(hdc, 38, 566, status.c_str(), static_cast<int>(status.size()));
     }
 
     SelectObject(hdc, oldFont);

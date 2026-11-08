@@ -9,6 +9,7 @@ CapApp opens a video capture device, displays its feed in a resizable window or 
 - Enumerates connected capture devices and their advertised YUY2/MJPEG formats.
 - Preserves the source aspect ratio while resizing, filling unused space with black bars.
 - Lets you switch capture format, resolution, frame-rate target, and scaling filter while running.
+- Lets you select both the audio input and monitoring output devices from the settings menu.
 - Offers Lanczos-3 and smooth mipmap scaling options.
 - Displays selected settings separately from the negotiated source mode and live running output, FPS, timing, and USB link information (`Tab`).
 - Reports nominal YUY2 input bandwidth when available. MJPEG’s compressed bitrate is shown as unavailable because the current Media Foundation path exposes decoded frames.
