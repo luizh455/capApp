@@ -2,111 +2,46 @@
 
 **A low-latency Windows preview for capture cards and cameras.**
 
-CapApp opens a video capture device, displays its feed in a resizable window or fullscreen, and provides live diagnostics for the negotiated capture mode and USB connection. It is built in C++20 with Windows Media Foundation and a Direct3D 11 presentation path.
+CapApp previews live video in a resizable or fullscreen window, with capture controls, audio monitoring, and live device diagnostics.
 
-## Features
+## Screenshots
 
-- Enumerates connected capture devices and their advertised YUY2/MJPEG formats.
-- Preserves the source aspect ratio while resizing, filling unused space with black bars.
-- Lets you switch capture format, resolution, frame-rate target, and scaling filter while running.
-- Resizes the windowed preview to the running capture frame's native size, scaling down proportionally when it will not fit the screen.
-- Lets you select both the audio input and monitoring output devices from the settings menu.
-- Offers None (nearest-neighbor), smooth mipmap, and Lanczos-3 scaling options.
-- Displays selected settings separately from the negotiated source mode and live running output, FPS, timing, and USB link information (`Tab`).
-- Reports nominal YUY2 input bandwidth when available. MJPEG’s compressed bitrate is shown as unavailable because the current Media Foundation path exposes decoded frames.
-- Supports windowed and fullscreen viewing, plus frame snapshots.
+![CapApp home menu with live capture and negotiated metrics](docs/screenshots/capapp-monitoring.png)
 
-> CapApp is under active development. Device support, available modes, and performance depend on the capture device, USB connection, and PC.
+![CapApp home menu with the video input options panel open](docs/screenshots/capapp-options.png)
 
-## Requirements
+## What it does
 
-- Windows
-- Visual Studio with the C++ desktop development tools and Windows SDK
-- CMake 3.25 or newer
-- Ninja
+- Previews cameras and capture cards and reports the mode negotiated with the device.
+- Lets you change the capture device, resolution, frame-rate target, and capture format while the app is running.
+- Preserves the video aspect ratio when resizing; choose **None** (nearest-neighbor), **Smooth**, or **Lanczos-3** scaling.
+- Fits a window to the running frame dimensions with **Native size**, scaling down proportionally when needed.
+- Captures audio from a selectable input and monitors it through a selectable output, with software volume and mute controls.
+- Shows negotiated source settings separately from the running output size, measured FPS, frame timings, and USB information.
+- Remembers your settings between launches.
 
-## Build
+## Controls
 
-From a Visual Studio Developer PowerShell or other shell configured for MSVC:
-
-```powershell
-cmake --preset ninja-release
-cmake --build --preset ninja-release
-```
-
-The executable is created at `build\src\capapp.exe`.
-
-## Run
-
-List detected devices and advertised capture formats:
-
-```powershell
-build\src\capapp.exe --list-devices
-```
-
-Start CapApp with its default device:
-
-```powershell
-build\src\capapp.exe
-```
-
-Choose a device, resolution, and frame-rate target:
-
-```powershell
-build\src\capapp.exe --device 1 --resolution 1080p --fps 60
-```
-
-`--device` accepts a device index or name. Supported resolution targets include `1080p`, `1440p`, `4k`, and explicit dimensions such as `2560x1440`. The capture device determines which modes can actually be negotiated.
-
-### Command-line options
-
-| Option | Description |
-| --- | --- |
-| `--list-devices`, `-l` | List detected capture devices and formats |
-| `--device`, `-d <index or name>` | Select a capture device |
-| `--resolution`, `-r <mode>` | Set a target resolution (`1080p`, `1440p`, `4k`, or `WxH`) |
-| `--fps <rate>` | Set a target frame rate |
-| `--fullscreen`, `-f` | Start fullscreen |
-| `--no-hud` | Start with the telemetry HUD hidden |
-| `--benchmark`, `-b` | Run the built-in latency benchmark |
-| `--help`, `-h` | Show command-line help |
-
-### Keyboard controls
-
-The live preview opens with a controller-friendly home panel. Click a setting or focus it with Up/Down, then press Right/Enter to open its options in the side panel. Use Up/Down to browse choices, Enter to select, and Left to return.
+The home menu opens on startup. Use **Up/Down** to focus a setting and **Right** or **Enter** to open its choices. Use **Up/Down** to browse choices and **Enter** to apply one; **Left** returns from the choices panel. You can also click settings and choices.
 
 | Key | Action |
 | --- | --- |
-| `C` | Cycle capture devices |
+| `Esc` | Toggle the settings menu |
+| `Tab` | Show/hide negotiated and running capture details; when the menu is closed, show details without the menu |
+| `C` | Cycle video input |
 | `R` | Cycle target resolution |
 | `P` | Cycle target frame rate |
 | `K` | Cycle available capture formats |
-| `L` | Toggle scaling filter |
-| `S` | Save a frame snapshot |
-| `F11` | Toggle fullscreen/windowed mode |
+| `L` | Cycle scaling: None, Smooth, Lanczos-3 |
 | `I` | Cycle audio input |
 | `+` / `-` | Adjust audio monitor volume |
-| `M` | Mute/unmute audio |
-| `Esc` | Toggle the settings menu open/closed |
-| `Tab` | Show/hide negotiated and live running details; shown alone when the menu is closed |
-| `Space` | Pause/resume preview |
+| `M` | Mute/unmute audio monitoring |
+| `S` | Save a frame snapshot |
+| `F11` | Toggle fullscreen/windowed mode |
+| `Space` | Pause/resume the preview |
 
-## Tests
+The **Display** setting includes Windowed, Fullscreen, and Native size (fit screen). Audio output selection and other configurable options are in the home menu. Settings are stored at `%APPDATA%\CapApp\settings.ini` and restored on launch; explicit command-line values take precedence for supported options.
 
-Build and run the test suite with:
+## Development
 
-```powershell
-cmake --build --preset ninja-release
-ctest --preset ninja-release
-```
-
-## Project layout
-
-| Path | Contents |
-| --- | --- |
-| `src/` | Application, capture, rendering, audio, and synchronization code |
-| `include/capapp/` | Public headers and shared types |
-| `tests/` | Unit and integration tests |
-| `shaders/` | Rendering shaders |
-| `assets/` | Application resources |
-| `docs/` | Technical documentation |
+Build requirements, setup instructions, tests, and command-line options are documented in [DEVELOPMENT.md](DEVELOPMENT.md).
