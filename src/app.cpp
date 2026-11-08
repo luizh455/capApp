@@ -341,8 +341,7 @@ void CapApplication::render_frame() {
         bmi.bmiHeader.biCompression = BI_RGB;
         bmi.bmiHeader.biSizeImage   = 0;
 
-        SetStretchBltMode(memDC_, HALFTONE);
-        SetBrushOrgEx(memDC_, 0, 0, nullptr);
+        SetStretchBltMode(memDC_, COLORONCOLOR);
         StretchDIBits(
             memDC_,
             destX, destY, destWidth, destHeight,
