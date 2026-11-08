@@ -1,0 +1,63 @@
+name: Bug report
+description: Report a reproducible problem with CapApp.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before submitting, search existing issues for a similar report.
+        For security vulnerabilities, use the private reporting link instead.
+  - type: input
+    id: version
+    attributes:
+      label: CapApp version
+      description: For example, v0.1.0-alpha.
+      placeholder: v0.1.0-alpha
+    validations:
+      required: true
+  - type: input
+    id: windows-version
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 24H2
+    validations:
+      required: true
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Capture and audio hardware
+      description: Include device models and connection details relevant to the problem.
+      placeholder: Capture card, camera, audio input/output, USB connection
+    validations:
+      required: false
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the steps that reproduce the problem.
+      placeholder: |
+        1. Start CapApp with ...
+        2. Open ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and screenshots
+      description: Include relevant output, but remove personal or sensitive information first.
+      render: text
+    validations:
+      required: false

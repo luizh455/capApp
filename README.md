@@ -109,6 +109,13 @@ cmake --build --preset ninja-release
 ctest --preset ninja-release
 ```
 
+## Contributing and community
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development and pull request
+guidelines, [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for participation
+expectations, and [SECURITY.md](SECURITY.md) for private vulnerability
+reporting. CapApp is distributed under the [MIT License](LICENSE).
+
 ## Project layout
 
 | Path | Contents |
