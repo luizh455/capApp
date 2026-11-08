@@ -36,6 +36,7 @@ if(WIN32)
         d3d11
         dxgi
         d3dcompiler
+        gdiplus
     )
 endif()
 
@@ -51,3 +52,9 @@ target_link_libraries(capapp PRIVATE
 )
 
 target_set_warnings(capapp)
+
+add_custom_command(TARGET capapp POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${PROJECT_SOURCE_DIR}/assets/images"
+        "$<TARGET_FILE_DIR:capapp>/assets/images"
+)

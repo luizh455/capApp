@@ -17,6 +17,7 @@
 
 #if defined(_WIN32)
 #include <objbase.h>
+#include <gdiplus.h>
 #endif
 
 namespace capapp::capture {
@@ -99,6 +100,18 @@ std::string encode_wide_id(const std::wstring& value) {
     return encoded.str();
 }
 
+#if defined(_WIN32)
+std::filesystem::path startup_splash_path() {
+    std::wstring executablePath(32768, L'\0');
+    const DWORD length = GetModuleFileNameW(
+        nullptr, executablePath.data(), static_cast<DWORD>(executablePath.size()));
+    if (length == 0 || length >= executablePath.size()) return {};
+    executablePath.resize(length);
+    return std::filesystem::path(executablePath).parent_path() /
+        "assets" / "images" / "splash.png";
+}
+#endif
+
 AppSettings load_settings() {
     AppSettings settings;
     const auto path = settings_path();
@@ -168,13 +181,19 @@ CapApplication::CapApplication(AppOptions options)
     : options_(options) {}
 
 CapApplication::~CapApplication() {
+    if (startupThread_.joinable()) {
+        startupThread_.join();
+    }
     stop_capture_reconfiguration_worker();
 #if defined(_WIN32)
+    if (window_) window_->destroy();
     if (memDC_) {
         SelectObject(memDC_, oldBitmap_);
         DeleteObject(memBitmap_);
         DeleteDC(memDC_);
     }
+    if (startupSplashBitmap_) DeleteObject(startupSplashBitmap_);
+    if (gdiplusToken_ != 0) Gdiplus::GdiplusShutdown(gdiplusToken_);
 #endif
 }
 
@@ -346,19 +365,58 @@ bool CapApplication::initialize() {
     winCfg.height = 720;
     winCfg.startFullscreen = options_.startFullscreen;
 
+#if defined(_WIN32)
+    Gdiplus::GdiplusStartupInput gdiplusInput{};
+    if (Gdiplus::GdiplusStartup(&gdiplusToken_, &gdiplusInput, nullptr) ==
+        Gdiplus::Ok) {
+        const auto imagePath = startup_splash_path();
+        Gdiplus::Bitmap image(imagePath.c_str());
+        if (image.GetLastStatus() == Gdiplus::Ok &&
+            image.GetHBITMAP(Gdiplus::Color(9, 12, 19), &startupSplashBitmap_) != Gdiplus::Ok) {
+            startupSplashBitmap_ = nullptr;
+        }
+        if (!startupSplashBitmap_) {
+            std::cerr << "[CapApp Warning] Could not load startup splash image: "
+                      << imagePath.string() << "\n";
+        }
+    } else {
+        gdiplusToken_ = 0;
+        std::cerr << "[CapApp Warning] GDI+ initialization failed; using text splash.\n";
+    }
+#endif
+
     window_ = std::make_unique<ui::NativeWindow>(winCfg);
+    window_->onPaint = [this]() {
+        draw_startup_splash();
+    };
     if (!window_->create()) {
         std::cerr << "[CapApp Error] Failed to create native Win32 window.\n";
         return false;
     }
 
-#if defined(_WIN32)
-    d3dRenderer_ = std::make_unique<ui::D3D11Renderer>();
-    if (!d3dRenderer_->initialize(window_->hwnd())) {
-        std::cerr << "[CapApp Warning] GPU renderer unavailable; using GDI fallback.\n";
-        d3dRenderer_.reset();
+    try {
+        startupThread_ = std::thread([this]() {
+            bool succeeded = false;
+            try {
+                succeeded = initialize_runtime();
+            } catch (const std::exception& error) {
+                std::cerr << "[CapApp Error] Startup failed: " << error.what() << "\n";
+            } catch (...) {
+                std::cerr << "[CapApp Error] Startup failed with an unknown error.\n";
+            }
+            startupSucceeded_.store(succeeded, std::memory_order_release);
+            startupComplete_.store(true, std::memory_order_release);
+        });
+    } catch (const std::system_error& error) {
+        std::cerr << "[CapApp Error] Could not start initialization thread: "
+                  << error.what() << "\n";
+        return false;
     }
-#endif
+    return true;
+}
+
+bool CapApplication::initialize_runtime() {
+    const AppSettings saved = load_settings();
 
     std::cout << "[CapApp] Initializing Vulkan context & GPU device...\n";
     vulkanCtx_ = std::make_unique<vulkan::VulkanContext>();
@@ -478,7 +536,58 @@ bool CapApplication::initialize() {
     frameRecorder_ = std::make_unique<capture::FrameRecorder>();
     frameRecorder_->start();
 
-    // Setup input callbacks
+    lastFpsUpdateNs_ = audio::WasapiAudioEngine::query_system_clock_ns();
+    std::cout << "[CapApp] Engine ready. Launching interactive presentation loop.\n";
+    return true;
+}
+
+void CapApplication::draw_startup_splash() {
+#if defined(_WIN32)
+    if (!window_) return;
+
+    HWND hwnd = window_->hwnd();
+    RECT clientRect{};
+    if (!hwnd || !GetClientRect(hwnd, &clientRect)) return;
+
+    HDC windowDc = GetDC(hwnd);
+    if (!windowDc) return;
+
+    const int width = clientRect.right - clientRect.left;
+    const int height = clientRect.bottom - clientRect.top;
+    HBRUSH background = CreateSolidBrush(RGB(9, 12, 19));
+    FillRect(windowDc, &clientRect, background);
+    DeleteObject(background);
+
+    if (startupSplashBitmap_) {
+        HDC imageDc = CreateCompatibleDC(windowDc);
+        if (imageDc) {
+            HBITMAP oldBitmap = reinterpret_cast<HBITMAP>(
+                SelectObject(imageDc, startupSplashBitmap_));
+            SetStretchBltMode(windowDc, HALFTONE);
+            SetBrushOrgEx(windowDc, 0, 0, nullptr);
+            StretchBlt(windowDc, 0, 0, width, height, imageDc, 0, 0,
+                       1280, 720, SRCCOPY);
+            SelectObject(imageDc, oldBitmap);
+            DeleteDC(imageDc);
+        }
+    } else {
+        SetBkMode(windowDc, TRANSPARENT);
+        SetTextColor(windowDc, RGB(243, 246, 252));
+        DrawTextW(windowDc, L"CapApp", -1, &clientRect,
+                  DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    }
+
+    SetBkMode(windowDc, TRANSPARENT);
+    SetTextColor(windowDc, RGB(200, 215, 235));
+    RECT statusRect{0, std::max(0, height - 58), width, height - 32};
+    DrawTextW(windowDc, L"Initializing capture...", -1, &statusRect,
+              DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+    ReleaseDC(hwnd, windowDc);
+#endif
+}
+
+void CapApplication::configure_window_callbacks() {
     window_->onResize = [this](uint32_t, uint32_t) {
         render_frame();
     };
@@ -583,9 +692,6 @@ bool CapApplication::initialize() {
         }
     };
 
-    lastFpsUpdateNs_ = audio::WasapiAudioEngine::query_system_clock_ns();
-    std::cout << "[CapApp] Engine ready. Launching interactive presentation loop.\n";
-    return true;
 }
 
 void CapApplication::toggle_hud() noexcept {
@@ -897,6 +1003,51 @@ void CapApplication::apply_option_choice(int option, size_t choice) {
 }
 
 int CapApplication::run() {
+    const auto shutdown = [this](bool persistSettings) {
+        if (persistSettings) save_settings();
+        stop_capture_reconfiguration_worker();
+        {
+            std::lock_guard lock(captureDeviceMutex_);
+            if (captureDev_) captureDev_->close();
+        }
+        if (audioEngine_) audioEngine_->stop();
+        if (vulkanCtx_) vulkanCtx_->shutdown();
+        if (window_) window_->destroy();
+    };
+
+    while (!startupComplete_.load(std::memory_order_acquire) &&
+           !window_->should_close()) {
+        window_->poll_events();
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    if (window_->should_close()) {
+        window_->destroy();
+    }
+    if (startupThread_.joinable()) {
+        startupThread_.join();
+    }
+    if (!startupSucceeded_.load(std::memory_order_acquire)) {
+        std::cerr << "[CapApp Error] Application initialization did not complete.\n";
+        const bool closedDuringStartup = window_->should_close();
+        shutdown(false);
+        return closedDuringStartup ? 0 : 1;
+    }
+    if (window_->should_close()) {
+        shutdown(false);
+        return 0;
+    }
+
+#if defined(_WIN32)
+    d3dRenderer_ = std::make_unique<ui::D3D11Renderer>();
+    if (!d3dRenderer_->initialize(window_->hwnd())) {
+        std::cerr << "[CapApp Warning] GPU renderer unavailable; using GDI fallback.\n";
+        d3dRenderer_.reset();
+    }
+#endif
+    configure_window_callbacks();
+    InvalidateRect(window_->hwnd(), nullptr, FALSE);
+
     auto lastFrameTime = std::chrono::steady_clock::now();
     uint64_t framesInInterval = 0;
     uint64_t captureCallsInInterval = 0;
@@ -987,15 +1138,7 @@ int CapApplication::run() {
     }
 
     std::cout << "[CapApp] Shutting down application...\n";
-    save_settings();
-    stop_capture_reconfiguration_worker();
-    {
-        std::lock_guard lock(captureDeviceMutex_);
-        if (captureDev_) captureDev_->close();
-    }
-    audioEngine_->stop();
-    vulkanCtx_->shutdown();
-    window_->destroy();
+    shutdown(true);
     return 0;
 }
 

@@ -66,6 +66,9 @@ private:
     void render_frame();
     void render_hud(HDC hdc, int width, int height);
     void render_monitoring_info(HDC hdc, int top);
+    bool initialize_runtime();
+    void configure_window_callbacks();
+    void draw_startup_splash();
     void queue_capture_reconfiguration(CaptureRequest request);
     void capture_reconfiguration_loop();
     void stop_capture_reconfiguration_worker() noexcept;
@@ -90,7 +93,10 @@ private:
     std::condition_variable captureRequestCv_;
     std::optional<CaptureRequest> pendingCaptureRequest_;
     std::thread captureReconfigurationThread_;
+    std::thread startupThread_;
     std::atomic<bool> captureReconfiguring_{false};
+    std::atomic<bool> startupComplete_{false};
+    std::atomic<bool> startupSucceeded_{false};
     bool stopCaptureReconfiguration_{false};
 
     ui::ScalingMode scalingMode_{ui::ScalingMode::Lanczos3};
@@ -109,6 +115,8 @@ private:
     Frame lastFrame_{}; // most-recently captured raw frame for rendering
 
 #if defined(_WIN32)
+    ULONG_PTR gdiplusToken_{0};
+    HBITMAP startupSplashBitmap_{nullptr};
     HDC memDC_{nullptr};
     HBITMAP memBitmap_{nullptr};
     HBITMAP oldBitmap_{nullptr};

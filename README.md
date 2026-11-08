@@ -22,6 +22,7 @@ CapApp previews live video in a resizable or fullscreen window, with capture con
 - Fits a window to the running frame dimensions with **Native size**, scaling down proportionally when needed.
 - Captures audio from a selectable input and monitors it through a selectable output, with software volume and mute controls.
 - Shows negotiated source settings separately from the running output size, measured FPS, frame timings, and USB information.
+- Displays a responsive startup splash while the capture, audio, and graphics systems initialize.
 - Remembers your settings between launches.
 
 ## Controls

@@ -1,0 +1,111 @@
+<svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="1280"
+    height="720"
+    viewBox="0 0 1280 720"
+    role="img"
+    aria-labelledby="title description"
+>
+    <title id="title">capApp</title>
+    <desc id="description">
+        Dark splash screen with a video capture symbol in cyan and violet.
+    </desc>
+
+    <defs>
+        <radialGradient id="backgroundGlow">
+            <stop offset="0%" stop-color="#17243E"/>
+            <stop offset="55%" stop-color="#101624"/>
+            <stop offset="100%" stop-color="#090C13"/>
+        </radialGradient>
+
+        <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#57E5FF"/>
+            <stop offset="100%" stop-color="#9975FF"/>
+        </linearGradient>
+
+        <linearGradient id="cardFill" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#1B2A40"/>
+            <stop offset="100%" stop-color="#101521"/>
+        </linearGradient>
+
+        <filter id="glow" x="-100%" y="-100%" width="300%" height="300%">
+            <feGaussianBlur stdDeviation="22"/>
+        </filter>
+    </defs>
+
+    <!-- Background -->
+    <path fill="#090C13" d="M0 0h1280v720H0z"/>
+    <ellipse
+        cx="640" cy="315" rx="540" ry="390"
+        fill="url(#backgroundGlow)"
+    />
+
+    <!-- Ambient light -->
+    <ellipse
+        cx="640" cy="294" rx="94" ry="62"
+        fill="#53CFFF" opacity=".10" filter="url(#glow)"
+    />
+
+    <!-- Capture frame corners -->
+    <g
+        fill="none"
+        stroke="url(#accent)"
+        stroke-width="3"
+        stroke-linecap="round"
+        opacity=".65"
+    >
+        <path d="M554 267v-15q0-12 12-12h17"/>
+        <path d="M697 240h17q12 0 12 12v15"/>
+        <path d="M554 321v15q0 12 12 12h17"/>
+        <path d="M697 348h17q12 0 12-12v-15"/>
+    </g>
+
+    <!-- Capture device -->
+    <rect
+        x="575" y="257" width="130" height="74" rx="19"
+        fill="url(#cardFill)"
+        stroke="url(#accent)"
+        stroke-width="2"
+    />
+
+    <!-- Play symbol -->
+    <path
+        d="M630 278
+       Q627 276 627 280
+       V308
+       Q627 312 630 310
+       L652 297
+       Q656 294 652 291 Z"
+        fill="url(#accent)"
+    />
+
+    <!-- Connection details -->
+    <g stroke="#7F9CB9" stroke-width="3" stroke-linecap="round">
+        <path d="M567 285h8M567 303h8"/>
+        <path d="M705 285h8M705 303h8"/>
+    </g>
+
+    <!-- App name -->
+    <text
+        x="640" y="419"
+        text-anchor="middle"
+        font-family="Inter, SF Pro Display, Segoe UI, Arial, sans-serif"
+        font-size="58"
+        letter-spacing="-2.5"
+        fill="#F3F6FC"
+    ><tspan font-weight="700">cap</tspan><tspan
+        font-weight="400"
+        fill="#9AAAC2"
+    >App</tspan></text>
+
+    <!-- Subtitle -->
+    <text
+        x="640" y="457"
+        text-anchor="middle"
+        font-family="Inter, Segoe UI, Arial, sans-serif"
+        font-size="15"
+        letter-spacing="3"
+        fill="#8292AA"
+    >Capture your game</text>
+
+</svg>
